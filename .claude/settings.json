@@ -6,22 +6,29 @@
           {
             "type": "command",
             "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; exec \"$CLAUDE_PROJECT_DIR\"/bin/fm-sessionstart-run.sh",
-            "timeout": 180
+            "timeout": 180,
+            "cwd": ".",
+            "timeoutSec": 180,
+            "powershell": "& ./bin/fm-claude-hook-launch.ps1 -Script fm-sessionstart-run.sh -SkipIfGrok; exit $LASTEXITCODE"
           }
         ]
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "^(Bash|powershell)$",
         "hooks": [
           {
             "type": "command",
-            "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; exec \"$CLAUDE_PROJECT_DIR\"/bin/fm-arm-pretool-check.sh --claude"
+            "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; exec \"$CLAUDE_PROJECT_DIR\"/bin/fm-arm-pretool-check.sh --claude",
+            "cwd": ".",
+            "powershell": "& ./bin/fm-claude-hook-launch.ps1 -Script fm-arm-pretool-check.sh -SkipIfGrok --claude; exit $LASTEXITCODE"
           },
           {
             "type": "command",
-            "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; exec \"$CLAUDE_PROJECT_DIR\"/bin/fm-cd-pretool-check.sh --claude"
+            "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; exec \"$CLAUDE_PROJECT_DIR\"/bin/fm-cd-pretool-check.sh --claude",
+            "cwd": ".",
+            "powershell": "& ./bin/fm-claude-hook-launch.ps1 -Script fm-cd-pretool-check.sh -SkipIfGrok --claude; exit $LASTEXITCODE"
           }
         ]
       },
@@ -30,7 +37,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/bin/fm-subagent-pretool-check.sh --claude"
+            "command": "root=\"${CLAUDE_PROJECT_DIR:-}\"; if [ -z \"$root\" ]; then root=$(git rev-parse --show-toplevel) || exit; fi; exec \"$root\"/bin/fm-subagent-pretool-check.sh --claude",
+            "cwd": ".",
+            "powershell": "& ./bin/fm-claude-hook-launch.ps1 -Script fm-subagent-pretool-check.sh --claude; exit $LASTEXITCODE"
           }
         ]
       }
@@ -40,13 +49,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; exec \"$CLAUDE_PROJECT_DIR\"/bin/fm-turnend-guard.sh --claude"
+            "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; exec \"$CLAUDE_PROJECT_DIR\"/bin/fm-turnend-guard.sh --claude",
+            "cwd": ".",
+            "powershell": "& ./bin/fm-claude-hook-launch.ps1 -Script fm-turnend-guard.sh -SkipIfGrok --claude; exit $LASTEXITCODE"
           },
           {
             "type": "command",
             "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; exec \"$CLAUDE_PROJECT_DIR\"/bin/fm-claude-stop-autoarm.sh",
             "asyncRewake": true,
-            "timeout": 28800
+            "timeout": 28800,
+            "cwd": ".",
+            "timeoutSec": 28800,
+            "powershell": "& ./bin/fm-claude-hook-launch.ps1 -Script fm-claude-stop-autoarm.sh -SkipIfGrok; exit $LASTEXITCODE"
           }
         ]
       }
