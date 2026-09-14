@@ -2392,6 +2392,7 @@ remote_fixture_prepare() {
   mkdir -p "$TMP_ROOT/remote-jobs"
   REMOTE_FIXTURE_JOBS=$(cd "$TMP_ROOT/remote-jobs" && pwd -P)
   cp "$ROOT"/bin/fm-*.sh "$REMOTE_FIXTURE_ROOT/bin/"
+  cp "$ROOT/bin/fm-windows-process.ps1" "$ROOT/bin/fm-windows-private-path.ps1" "$REMOTE_FIXTURE_ROOT/bin/"
   cp "$ROOT"/bin/backends/*.sh "$REMOTE_FIXTURE_ROOT/bin/backends/"
   chmod +x "$REMOTE_FIXTURE_ROOT/bin"/*.sh
   printf 'fixture\n' > "$REMOTE_FIXTURE_ROOT/AGENTS.md"

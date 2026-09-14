@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Detect the agent harness this process tree runs on.
-# Usage: fm-harness.sh                  print own harness: claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy|unknown
+# Usage: fm-harness.sh                  print own harness: claude|codex|copilot|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy|unknown
 #        fm-harness.sh crew             print the effective CREWMATE harness
 #                                        (config/crew-harness; "default" resolves to own)
 #        fm-harness.sh secondmate       print the harness the PRIMARY uses to launch
@@ -62,8 +62,8 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 
-# shellcheck source=bin/fm-cursor-lib.sh
-. "$SCRIPT_DIR/fm-cursor-lib.sh"
+# shellcheck source=bin/fm-harness-process-lib.sh
+. "$SCRIPT_DIR/fm-harness-process-lib.sh"
 # shellcheck source=bin/fm-gemini-lib.sh
 . "$SCRIPT_DIR/fm-gemini-lib.sh"
 
@@ -71,6 +71,12 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 # marker is present. Markers only report what the environment CLAIMS; detect_own
 # decides whether that claim survives contradicting ancestry.
 harness_marker() {
+  if [ "${COPILOT_CLI:-}" = 1 ] && [ "${GEMINI_CLI:-}" != 1 ] \
+    && [ "${ATLASSIAN_AGENT_TYPE:-}" != rovo ] && [ "${ROVODEV_CLI:-}" != 1 ] \
+    && [ "${PI_CODING_AGENT:-}" != true ] && [ "${GROK_AGENT:-}" != 1 ]; then
+    echo copilot
+    return
+  fi
   # Cursor is tested BEFORE claude, deliberately. cursor-agent does NOT clear an
   # inherited CLAUDECODE, so a cursor session started by hand from a claude
   # primary carries BOTH markers and whichever is tested first wins. This
@@ -123,15 +129,6 @@ harness_marker() {
     if [ "${FM_PI_HARNESS:-}" = pi-signed ]; then echo pi-signed; else echo pi; fi
     return
   fi
-  # grok set GROK_AGENT=1 for its child/tool processes (verified, grok 0.2.73).
-  # It does NOT set CLAUDECODE despite being Claude-Code-compatible, so the marker
-  # is unambiguous WHEN PRESENT - but it is not guaranteed present. A grok 1.0.0
-  # hook process carries GROK_HOOK_EVENT, GROK_HOOK_NAME, GROK_SESSION_ID, and
-  # GROK_WORKSPACE_ROOT with no GROK_AGENT at all (verified from the live process
-  # environment of a wedged grok 1.0.0 Stop hook, 2026-08-07). Treat this marker as
-  # a fast path only; the ancestry walk below is what actually guarantees grok is
-  # identified, and any rule that must be RELIABLE under grok has to test the hook
-  # markers too (see .claude/settings.json Stop entries, docs/turnend-guard.md).
   [ "${GROK_AGENT:-}" = "1" ] && { echo grok; return; }
   # codex, opencode, kimi, muse, and agy publish no harness-identity marker at all, so
   # they are never named here and are identified by ancestry alone. That is the
@@ -177,6 +174,14 @@ harness_process_verdict() {  # <pid>
   fi
   if fm_gemini_path_is_gemini "$comm"; then
     echo "comm gemini"
+    return
+  fi
+  args=$(ps -o args= -p "$pid" 2>/dev/null || true)
+  if fm_harness_process_matches_live "$comm" "$args"; then
+    case "$(basename -- "$comm"):$FM_HARNESS_MATCH_NAME" in
+      node*:copilot) echo "args copilot" ;;
+      *) echo "comm $FM_HARNESS_MATCH_NAME" ;;
+    esac
     return
   fi
   case "$(basename -- "$comm")" in
@@ -250,6 +255,10 @@ harness_process_verdict() {  # <pid>
 # inside another harness resolves to its own harness.
 harness_ancestry() {  # [<pid>]
   local pid=${1:-$$} verdict
+  if [ -r "/proc/$$/winpid" ] && [ "${COPILOT_CLI:-}" = 1 ] && [ -n "${COPILOT_LOADER_PID:-}" ]; then
+    if fm_windows_copilot_identity >/dev/null; then echo "comm copilot"; fi
+    return
+  fi
   for _ in 1 2 3 4 5 6 7 8; do
     verdict=$(harness_process_verdict "$pid")
     [ -z "$verdict" ] || { echo "$verdict"; return; }

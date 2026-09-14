@@ -317,8 +317,8 @@ family_for_basename() {
     fm-backlog-handoff.test.sh|fm-on.test.sh|fm-remote-backlog-handoff.test.sh|\
     fm-remote-doctor.test.sh|fm-remote-herdr-guard.test.sh|fm-remote-job.test.sh|fm-remote-job-orphan-reap.test.sh|\
     fm-remote-transport-lanes.test.sh|\
-    fm-remote-reply.test.sh|fm-remote-secondmate-lifecycle-e2e.test.sh|\
-    fm-remote-secondmate-trace-context.test.sh|\
+    fm-remote-reply.test.sh|fm-remote-secondmate-control.test.sh|\
+    fm-remote-secondmate-lifecycle-e2e.test.sh|fm-remote-secondmate-trace-context.test.sh|\
     fm-secondmate-harness.test.sh|fm-secondmate-lifecycle-e2e.test.sh|\
     fm-secondmate-liveness.test.sh|fm-secondmate-reconcile.test.sh|\
     fm-secondmate-restart.test.sh|\
@@ -339,7 +339,9 @@ family_for_basename() {
     fm-cmux-claude-composer-live-e2e.test.sh|\
     fm-composer-matrix-live-e2e.test.sh|\
     fm-codex-continuity-live-e2e.test.sh|fm-grok-continuity-live-e2e.test.sh|\
-    fm-cursor-primary-live-e2e.test.sh|\
+    fm-copilot-primary-live-e2e.test.sh|fm-cursor-primary-live-e2e.test.sh|\
+    fm-windows-copilot-session.test.sh|\
+    fm-herdr-windows-cwd.test.sh|fm-herdr-windows-literal.test.sh|\
     fm-grok-stop-live-e2e.test.sh|fm-harness-adapter-instructions-live-e2e.test.sh|\
     fm-harness-liveness-drift-live-e2e.test.sh|\
     fm-muse-signals-live-e2e.test.sh|fm-rovo-signals-live-e2e.test.sh|fm-agy-signals-live-e2e.test.sh|\
@@ -684,6 +686,7 @@ tests/fm-claude-stop-autoarm.test.sh 60709
 tests/fm-cmux-claude-composer-live-e2e.test.sh 23
 tests/fm-codex-continuity-live-e2e.test.sh 21
 tests/fm-composer-matrix-live-e2e.test.sh 23
+tests/fm-copilot-primary-live-e2e.test.sh 20
 tests/fm-control-relaunch.test.sh 48210
 tests/fm-control.test.sh 54301
 tests/fm-cursor-harness.test.sh 30103
@@ -742,6 +745,7 @@ tests/fm-remote-herdr-guard.test.sh 1500
 tests/fm-remote-job-orphan-reap.test.sh 2972
 tests/fm-remote-job.test.sh 59603
 tests/fm-remote-reply.test.sh 101690
+tests/fm-remote-secondmate-control.test.sh 500
 tests/fm-remote-secondmate-lifecycle-e2e.test.sh 209631
 tests/fm-remote-secondmate-parent-binding.test.sh 29562
 tests/fm-remote-secondmate-trace-context.test.sh 67096

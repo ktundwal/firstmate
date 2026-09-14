@@ -160,6 +160,26 @@ In that 2026-08-03 seven-adapter run, Claude Code was the only harness whose tit
 Codex reported `codex-aarch64-a` at 0.145.0 and `codex` at 0.146.0, and Kimi Code reported `kimi-code` as its foreground `comm` at 0.29.1 and `kimi` at 0.31.1, so these identities move between ordinary patch releases in both directions.
 That is the evidence for treating any single process name as a surface under vendor control rather than a stable contract.
 
+GitHub Copilot CLI was verified separately on 2026-09-02 with Copilot CLI 1.0.83-3 and tmux 3.6 under Ubuntu WSL2.
+
+```sh
+tmux new-session -d -s fm-copilot-real -n copilot -- copilot --no-auto-update
+tmux display-message -p -t fm-copilot-real:copilot '#{pane_current_command}'
+ps -t "${tty#/dev/}" -o pid=,pgid=,tpgid=,comm=,args=
+```
+
+Observed bounded output:
+
+```text
+title=copilot
+foreground comm=MainThread args=copilot --no-auto-update
+state=alive
+```
+
+The two independent sources deliberately disagree.
+The pane title identifies Copilot directly, while the foreground process group preserves the generic `MainThread` command plus Copilot argv zero.
+Either signal is sufficient for `alive`, and the portable regression also proves that an unrelated later argument containing `copilot` does not match.
+
 The crewmate-only Muse Code 0.1.0-R708.1 adapter was verified separately on 2026-08-05 against tmux on macOS arm64.
 Its installed `muse-bin-0.1.0-R708.1` foreground identity classified `alive`, while `musescore`, `amuse`, `muse-binary`, and `muse-bind` remained ambiguous in the portable regression.
 [`muse.md`](muse.md#process-identity) owns the artifact identity and launcher evidence for that verification.
@@ -184,6 +204,7 @@ alive
 `#{pane_current_command}` and foreground `ps -o comm=` read different name fields, but which one preserves executable identity is platform-dependent.
 On macOS the pane command reflected the rewritable title while the full install path could survive in `ps -o comm=`; in the Linux portable regression those roles reversed for the version-named native executable, with the identifying path retained in argv[0].
 The classifier therefore accepts a harness basename first, then an exact harness path component in the full executable path, then the same component in argv[0], without depending on which field carries it on a given platform.
+Copilot is the narrow exception: to avoid `/copilot/` directory decoys, its path evidence requires an executable or argv[0] basename of `copilot`, including `MainThread` plus Copilot argv zero, while a bare interpreter is accepted only for the verified node bundle path ending `/copilot/bin/copilot`.
 
 The portable regression is CI-enforced.
 The real-harness drift guard spends no model tokens, so under the policy in `.agents/skills/firstmate-coding-guidelines/SKILL.md` it runs by default wherever tmux is installed and reports a capability skip elsewhere; `FM_HARNESS_LIVENESS_DRIFT=1` additionally turns an absent tool into a failure.
@@ -242,7 +263,7 @@ pi-signed
 
 Two checks keep the evidence boundaries separate.
 `tests/fm-harness-adapter-references.test.sh` parses the router's declared JSON contract as normalized data and proves every selected reference is readable, which is structural evidence only.
-`tests/fm-harness-adapter-instructions-live-e2e.test.sh` is an opt-in development check that sends the directly loaded router and every operation scenario across all nine harness identities to a local Ollama model, requires the generated plan as normalized JSON, and makes no external-provider call.
+`tests/fm-harness-adapter-instructions-live-e2e.test.sh` is an opt-in development check that sends the directly loaded router and every operation scenario across all ten harness identities to a local Ollama model, requires the generated plan as normalized JSON, and makes no external-provider call.
 
 ```sh
 FM_HARNESS_ADAPTER_INSTRUCTION_EVAL=1 FM_HARNESS_ADAPTER_LOCAL_MODEL=ambient-router-gemma4:e4b bin/fm-test-run.sh tests/fm-harness-adapter-instructions-live-e2e.test.sh
@@ -250,7 +271,7 @@ FM_HARNESS_ADAPTER_INSTRUCTION_EVAL=1 FM_HARNESS_ADAPTER_LOCAL_MODEL=ambient-rou
 
 That local evaluation demonstrates instruction-driven scenario selection, but it does not claim that a native harness loaded the selected files.
 The guard prints the exact installed version or unavailable status for every native harness so absent tools and unexercised provider transports remain explicit rather than becoming passes.
-Native loader behavior still requires the applicable live agent-tool check; no uniform deterministic zero-provider transport currently spans Claude, Codex, OpenCode, and Pi, and the other five tools remain unavailable where their binaries are absent.
+Native loader behavior still requires the applicable live agent-tool check; no uniform deterministic zero-provider transport currently spans Claude, Codex, OpenCode, and Pi, and the other six tools remain unavailable where their binaries are absent.
 
 Bounded output from the 2026-08-29 local run:
 
@@ -268,6 +289,9 @@ ok - local model ambient-router-gemma4:e4b selected every operation scenario and
 # installed native tools recorded without overstating loader coverage: 4
 # unavailable native tools: pi-signed grok kimi cursor muse
 ```
+
+That retained output predates Copilot's addition.
+The current router and test matrix contain ten identities, with Copilot routed through `references/harness/copilot.md`.
 
 The isolated process and endpoint checks used:
 
@@ -329,7 +353,7 @@ ok - fm-teardown: dedicated-socket invalid cleanup preserves target/control and 
 The dedicated tmux cell removed ambient tmux variables, required a socket-bound wrapper, kept one target and one independent control window, and proved the wrapper was not called for invalid metadata or a direct empty target.
 Valid cleanup removed only the exact task-bound target and left the control window live.
 The metadata-only validation covers tmux, Herdr, Zellij, Orca, and cmux before backend dispatch.
-Claude, Codex, OpenCode, Pi, pi-signed, Grok, Kimi, Cursor, and Muse share that backend cleanup boundary; their harness-specific hook files, tokens, transcript bindings, and session-log sidecars are cleaned only after it, so no harness needs a separate endpoint parser.
+Claude, Codex, GitHub Copilot CLI, OpenCode, Pi, pi-signed, Grok, Kimi, Cursor, and Muse share that backend cleanup boundary; their harness-specific hook files, tokens, transcript bindings, and session-log sidecars are cleaned only after it, so no harness needs a separate endpoint parser.
 
 ## Claude workspace trust
 
@@ -477,6 +501,20 @@ Kimi was not installed on the verification machine; its bordered shape is pinned
 This guard is the refresh command after an upgrade to any matrix-covered harness; rerun it and update the versions above rather than trusting this table across releases.
 Known staleness: on 2026-08-23 the steering-inbox doorbell run observed grok 1.0.5's idle composer classifying `unknown` (and sometimes pending-family), never `empty`, so the grok row above is stale for 1.0.5 and owes a refresh; steering is unaffected because the send path's composer check is advisory, but empty-requiring consumers (away-daemon injection, spawn readiness) should not trust the 1.0.0 grok result.
 Cursor is deliberately outside this cursor-anchored empty-composer matrix because its terminal cursor is parked outside the composer; tmux's Cursor-specific, process-identity-gated cursorless fallback is covered by the [Cursor Agent CLI](#cursor-agent-cli) section's separate live evidence and drift guard.
+
+Copilot CLI 1.0.83-3 was added to the same live guard on 2026-09-02 under Ubuntu WSL2 with tmux 3.6.
+Its terminal cursor was at row 4 while the empty composer occupied the bottom half-box, so the initial cursor-anchored read returned `unknown`.
+The shipped fallback now requires a live Copilot foreground identity and a complete width-matched `╻▄▄...`, `┃...`, `╹▀▀...` structure before cursorless classification can return `empty`.
+
+```text
+ok - copilot (GitHub Copilot CLI 1.0.83-3.): real idle composer classifies empty
+ok - strict posture live: a blank shell row classifies unknown and injection defers
+ok - live composer-matrix guard verified 2 live surface(s)
+```
+
+The portable matrix separately proves that a lone `┃`, an identityless Copilot half-box, a missing rule, or mismatched top and bottom widths remains `unknown`, while typed content remains `pending`.
+
+Copilot on Zellij, cmux, and Orca therefore remains launchable and steerable through the durable inbox, but explicit typed delivery confirmation and empty-composer-dependent injection are intentionally unconfirmed there until those backends expose a live Copilot identity probe.
 
 `zellij action dump-screen --pane-id <id> --ansi` was verified at zellij 0.44.0 to preserve ANSI styling (real Claude Code rendered inside a zellij pane dumped `ESC[m` `❯` U+00A0 for its idle composer row), which is the capability the zellij composer classifier reads.
 
@@ -710,6 +748,46 @@ teardown gm2 complete; state/gm2.gemini-settings.json removed
 
 Gemini as a PRIMARY or SECONDMATE runtime is unverified and is refused by `bin/fm-spawn.sh`: no wake protocol exists under `docs/supervision-protocols/` and no turn-end guard adapter was built or exercised.
 No reasoning-effort axis was found; `gemini --help` on 0.58.0 exposes no effort, reasoning, or thinking flag, so the record-and-omit contract applies.
+
+## Native Windows Copilot pilot
+
+On 2026-09-14, a native Windows Copilot CLI primary reporting 1.0.81-9 exercised generation-bound session ownership through Git Bash 5.3.15.
+The installed Herdr build at final verification was `0.9.0-preview.2026-09-08-62431dbd033b`.
+A real isolated Copilot worker produced a report, acknowledged durable steering, emitted native busy/stop hooks, relaunched in the same worktree with its report and HEAD preserved, exited, and completed guarded scout cleanup.
+The initial worker banner reported 1.0.84-6 after an automatic update; managed launch now disables automatic updates, so the primary and worker observations must not be attributed to one CLI version.
+Task-specific commands, approved ACL changes, paths, restart output, and cleanup evidence remain in the private integration report.
+
+Current native regression entry points, run from an actual Copilot CLI session, are:
+
+```sh
+bin/fm-test-run.sh tests/fm-windows-process.test.sh \
+  tests/fm-windows-copilot-session.test.sh tests/fm-windows-private-path.test.sh \
+  tests/fm-tasks-axi-windows.test.sh tests/fm-herdr-windows-socket.test.sh \
+  --per-script-timeout-secs 180
+```
+
+Observed output excerpt:
+
+```text
+ok - Windows owner identity is generation-bound and keeps the Unix representation
+ok - real Windows acquisition and reacquisition preserve the same owner
+ok - foreign claims and previous process generations do not own this session
+ok - native private ACLs support one-time completion receipts
+ok - native PowerShell completion consumes one matching receipt and rejects replay
+FM_TEST_SUMMARY total=5 failed=0 skipped_gate=0 duration_ms=91137
+```
+
+The owned-lab guards `tests/fm-herdr-windows-cwd.test.sh` and `tests/fm-herdr-windows-literal.test.sh` additionally exercise fresh pre-launch directory evidence and literal slash-command transport.
+They require an explicitly supplied idle shell in a registered disposable lab and do not select a shared session.
+The ACL and completion tests cover native private access, rejection of broader access, one-time receipt claims, and PowerShell completion-notification replay rejection.
+The [Copilot adapter reference](../../.agents/skills/harness-adapters/references/harness/copilot.md) routes the current implementation owners.
+
+The primary startup command produced hook context when invoked directly, but automatic primary-hook delivery through a newly launched primary was not exercised.
+Interrupt returned `verified=agent-alive cancel=unconfirmed`; active-work cancellation is not proven.
+Worker replacement preserved its worktree, but active-work recovery across loss of the entire Herdr server is not proven.
+Cleanup reported unavailable `lsof` process-group fallback and account-wide remote-job orphan scanning; this local fixture launched no remote jobs.
+The imported Copilot regression reaches a Unix-only real-process case that uses `ps -o comm=` and `ps -o args=`, which Git Bash does not implement.
+That failed run is not a passing cross-platform regression result, and the existing Linux/WSL evidence elsewhere in this record does not certify this Windows integration.
 
 ## Herdr
 

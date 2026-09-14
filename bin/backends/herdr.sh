@@ -387,6 +387,13 @@ fm_backend_herdr_workspace_label() {
 fm_backend_herdr_cli() {  # <session> <herdr-subcommand-and-args...>
   local session=$1 rc=0 err failed_bin selected_bin client_bin=herdr
   shift
+  case "${1:-} ${2:-}" in
+    'pane send-text'|'pane run')
+      # Terminal text is opaque. MSYS must not turn /exit into a filesystem path.
+      local MSYS2_ARG_CONV_EXCL='*'
+      export MSYS2_ARG_CONV_EXCL
+      ;;
+  esac
   if [ "${FM_BACKEND_HERDR_CLIENT_SESSION:-}" = "$session" ]; then
     client_bin=$(fm_backend_herdr_bin)
   fi
@@ -802,6 +809,12 @@ fm_backend_herdr_presentation_lock_namespace_uid() {
 fm_backend_herdr_presentation_lock_namespace_valid() {
   local dir=$1 expected_uid owner mode
   [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
+  if [ -r "/proc/$$/winpid" ]; then
+    # shellcheck source=bin/fm-private-path-lib.sh
+    . "$FM_BACKEND_HERDR_ROOT/bin/fm-private-path-lib.sh"
+    fm_private_data_path_matches "$dir" directory
+    return $?
+  fi
   expected_uid=$(id -u 2>/dev/null) || return 1
   owner=$(fm_backend_herdr_presentation_lock_namespace_uid "$dir") || return 1
   mode=$(fm_backend_herdr_presentation_lock_namespace_mode "$dir") || return 1
@@ -823,6 +836,12 @@ fm_backend_herdr_presentation_lock_namespace_valid() {
 fm_backend_herdr_canonical_socket_path() {  # <socket-path>
   local socket=$1 sock_dir sock_base
   [ -n "$socket" ] || return 1
+  case "$socket" in
+    [A-Za-z]:[\\/]*)
+      socket=$(cygpath -u "$socket" 2>/dev/null) || return 1
+      [ -n "$socket" ] || return 1
+      ;;
+  esac
   case "$socket" in
     /*) ;;
     *) return 1 ;;
@@ -1659,6 +1678,7 @@ fm_backend_herdr_server_ensure() {  # <session>
   [ "$running" = "true" ] && return 0
   (
     unset FM_HOME FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE \
+      COPILOT_CLI COPILOT_AGENT_SESSION_ID COPILOT_LOADER_PID COPILOT_CLI_BINARY_VERSION \
       CURSOR_AGENT CURSOR_INVOKED_AS CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT FM_SUPERVISION_MODEL
     fm_backend_herdr_cli "$session" server >/dev/null 2>&1 &
   ) || return 1
@@ -2943,10 +2963,60 @@ fm_backend_herdr_target_ready() {  # <target>
 # `.result.pane.foreground_cwd` tracks the ACTUALLY RUNNING foreground
 # process's cwd instead, which is what changes when `treehouse get` enters its
 # worktree subshell - confirmed live against a real treehouse acquisition.
-fm_backend_herdr_current_path() {  # <target>
+# Windows omits that field. Before agent launch only, an all-Bash foreground
+# may answer a fresh pwd marker, following the existing cmux/zellij probe pattern.
+fm_backend_herdr_bash_foreground() {  # <session> <pane>
+  fm_backend_herdr_cli "$1" pane process-info --pane "$2" 2>/dev/null |
+    jq -cer --arg pane "$2" '
+      .result.process_info
+      | select(.pane_id == $pane and (.shell_pid | type) == "number")
+      | select((.foreground_processes | length) > 0)
+      | select(all(.foreground_processes[];
+          (.pid | type) == "number"
+          and ((.name | ascii_downcase) == "bash.exe" or (.name | ascii_downcase) == "bash")))
+      | [.shell_pid, ([.foreground_processes[].pid] | sort)]
+    ' 2>/dev/null
+}
+
+fm_backend_herdr_windows_shell_path() {  # <session> <pane>
+  local session=$1 pane=$2 before after marker begin end out candidate attempt
+  before=$(fm_backend_herdr_bash_foreground "$session" "$pane") || return 0
+  marker="__FM_CWD_${BASHPID:-$$}_${RANDOM}_${RANDOM}"
+  begin="${marker}_BEGIN__"
+  end="${marker}_END__"
+  fm_backend_herdr_cli "$session" pane run "$pane" \
+    "printf '%s\\n' '$begin'; pwd -P; printf '%s\\n' '$end'" >/dev/null 2>&1 || return 0
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    out=$(fm_backend_herdr_cli "$session" pane read "$pane" --source recent-unwrapped --lines 200 2>/dev/null) || return 0
+    candidate=$(printf '%s\n' "$out" | tr -d '\r' | awk -v begin="$begin" -v end="$end" '
+      $0 == begin { active = 1; count = 0; value = ""; next }
+      active && $0 == end {
+        if (count == 1 && substr(value, 1, 1) == "/") print value
+        active = 0
+        next
+      }
+      active { value = $0; count++ }
+    ')
+    if [ -n "$candidate" ]; then
+      after=$(fm_backend_herdr_bash_foreground "$session" "$pane") || return 0
+      [ "$before" = "$after" ] || return 0
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+    sleep 0.1
+  done
+}
+
+fm_backend_herdr_current_path() {  # <target> [shell-discovery before agent launch]
+  local path
   fm_backend_herdr_target_ready "$1" || return 0
-  fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane get "$FM_BACKEND_HERDR_PANE" 2>/dev/null \
-    | jq -r '.result.pane.foreground_cwd // empty' 2>/dev/null
+  path=$(fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane get "$FM_BACKEND_HERDR_PANE" 2>/dev/null \
+    | jq -r '.result.pane.foreground_cwd // empty' 2>/dev/null)
+  if [ -n "$path" ]; then
+    printf '%s\n' "$path"
+  elif [ "${2:-}" = shell-discovery ] && [ -r "/proc/$$/winpid" ]; then
+    fm_backend_herdr_windows_shell_path "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE"
+  fi
 }
 
 # fm_backend_herdr_send_text_line: send one line of TEXT then submit,

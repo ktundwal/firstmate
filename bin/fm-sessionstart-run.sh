@@ -11,7 +11,7 @@
 # discretion - the helm is taken before the model's first turn, whatever the
 # first turn is.
 #
-# Usage: fm-sessionstart-run.sh [--source <source>] [--pi-prerequisite]
+# Usage: fm-sessionstart-run.sh [--source <source>] [--pi-prerequisite] [--copilot]
 #   --source  The harness's own session-open source. When omitted, the source is
 #             read from a Claude/Codex-shaped JSON hook payload on stdin
 #             (the `source` field). An unreadable or unrecognized source is
@@ -61,6 +61,7 @@ COMPLETION_FILE="$STATE/.session-start-complete"
 
 SOURCE=
 PI_PREREQUISITE=0
+COPILOT_MODE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --source)
@@ -71,6 +72,7 @@ while [ $# -gt 0 ]; do
       ;;
     --source=*) SOURCE=${1#--source=}; shift ;;
     --pi-prerequisite) PI_PREREQUISITE=1; shift ;;
+    --copilot) COPILOT_MODE=1; shift ;;
     *) shift ;;
   esac
 done
@@ -96,7 +98,7 @@ session_start_completed() {
   fm_session_lock_owned_by_self "$STATE" || return 1
   lock_pid=$(cat "$STATE/.lock" 2>/dev/null) || return 1
   completion_pid=$(cat "$COMPLETION_FILE" 2>/dev/null) || return 1
-  case "$lock_pid" in ''|*[!0-9]*) return 1 ;; esac
+  fm_session_pid_valid "$lock_pid" || return 1
   [ "$completion_pid" = "$lock_pid" ]
 }
 
@@ -115,7 +117,7 @@ if [ -z "$SOURCE" ] && [ ! -t 0 ]; then
   # cursor.sh already owns that session open and calls this wrapper with an
   # explicit --source and no payload. Running twice would take the helm twice
   # and repeat every startup sweep.
-  if fm_hook_payload_is_foreign_host "$PAYLOAD"; then
+  if [ "$COPILOT_MODE" -eq 0 ] && fm_hook_payload_is_foreign_host "$PAYLOAD"; then
     exit 0
   fi
   SOURCE=$(printf '%s' "$PAYLOAD" | awk '

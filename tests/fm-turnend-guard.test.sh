@@ -187,7 +187,8 @@ install_guard_scripts() {
   cp "$ROOT/bin/fm-turnend-guard-grok.sh" "$dir/bin/fm-turnend-guard-grok.sh"
   cp "$ROOT/bin/fm-operational-input.sh" "$dir/bin/fm-operational-input.sh"
   cp "$ROOT/bin/fm-supervision-instructions.sh" "$dir/bin/fm-supervision-instructions.sh"
-  cp "$ROOT/bin/fm-harness.sh" "$dir/bin/fm-harness.sh"
+  cp "$ROOT/bin/fm-harness.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$dir/bin/"
+  cp "$ROOT/bin/fm-windows-process-lib.sh" "$ROOT/bin/fm-windows-process.ps1" "$dir/bin/"
   cp "$ROOT/bin/fm-primary-scope-lib.sh" "$dir/bin/fm-primary-scope-lib.sh"
   cp "$ROOT/bin/fm-supervision-lib.sh" "$dir/bin/fm-supervision-lib.sh"
   cp "$ROOT/bin/fm-wake-lib.sh" "$dir/bin/fm-wake-lib.sh"
@@ -195,6 +196,7 @@ install_guard_scripts() {
   mkdir -p "$dir/docs"
   cp -R "$ROOT/docs/supervision-protocols" "$dir/docs/supervision-protocols"
   chmod +x "$dir/bin/fm-turnend-guard.sh" "$dir/bin/fm-turnend-guard-grok.sh" "$dir/bin/fm-operational-input.sh" "$dir/bin/fm-supervision-instructions.sh" "$dir/bin/fm-harness.sh"
+  ln -sf /bin/bash "$dir/claude"
 }
 
 mark_codex_hook_root() {
@@ -886,7 +888,11 @@ test_tracked_claude_entries_inert_under_grok() {
   local dir cmd script target guarded=0 unguarded=0
   command -v jq >/dev/null 2>&1 || fail "test host must provide jq"
   dir="$TMP_ROOT/claude-entries-grok-inert"
-  mkdir -p "$dir/bin"
+  mkdir -p "$dir/bin" "$dir/.claude"
+  : > "$dir/AGENTS.md"
+  cp "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-claude-compat-hook.sh" "$dir/bin/"
+  cp "$ROOT/bin/fm-windows-process-lib.sh" "$ROOT/bin/fm-windows-process.ps1" "$dir/bin/"
+  cp "$ROOT/.claude/settings.json" "$dir/.claude/settings.json"
   for script in fm-turnend-guard.sh fm-claude-stop-autoarm.sh fm-sessionstart-run.sh \
     fm-arm-pretool-check.sh fm-cd-pretool-check.sh fm-subagent-pretool-check.sh; do
     printf '#!/usr/bin/env bash\nprintf ran >> %q\n' "$dir/invoked" > "$dir/bin/$script"
@@ -896,13 +902,26 @@ test_tracked_claude_entries_inert_under_grok() {
   # Runs one tracked command string and reports whether it reached its script.
   ran_under() {
     rm -f "$dir/invoked"
-    env "$@" CLAUDE_PROJECT_DIR="$dir" bash -c "$cmd" </dev/null >/dev/null 2>&1
+    ( cd "$dir" && env "$@" CLAUDE_PROJECT_DIR="$dir" bash -c "$cmd" ) </dev/null >/dev/null 2>&1
     [ -e "$dir/invoked" ]
   }
 
   while IFS= read -r cmd; do
     [ -n "$cmd" ] || continue
-    target=$(printf '%s\n' "$cmd" | sed -n 's|.*/bin/\([a-z0-9-]*\.sh\).*|\1|p')
+    target=$(printf '%s\n' "$cmd" | awk '
+      {
+        for (i = 1; i < NF; i++) {
+          if ($i ~ /fm-claude-compat-hook\.sh/) {
+            target = $(i + 1)
+          }
+        }
+      }
+      END {
+        gsub(/"/, "", target)
+        print target
+      }
+    ')
+    [ -n "$target" ] || target=$(printf '%s\n' "$cmd" | sed -n 's|.*/bin/\([a-z0-9-]*\.sh\).*|\1|p')
     [ -n "$target" ] || fail "could not identify the target script of tracked entry: $cmd"
 
     # Native Claude: EVERY tracked entry must still reach its script, or a guard
@@ -1181,7 +1200,7 @@ EOF
 run_hook_claude() {
   local dir=$1 stop_active=$2 home
   home=$(cd "$dir" && pwd)
-  printf '{"stop_hook_active":%s,"session_id":"sess-claude-mode"}' "$stop_active" | CLAUDECODE=1 FM_HOME="$home" bash "$dir/bin/fm-turnend-guard.sh" --claude 2>&1
+  printf '{"stop_hook_active":%s,"session_id":"sess-claude-mode"}' "$stop_active" | CLAUDECODE=1 FM_HOME="$home" "$dir/claude" "$dir/bin/fm-turnend-guard.sh" --claude 2>&1
 }
 
 seed_claude_failure() {
@@ -1210,6 +1229,8 @@ install_integrated_autoarm() {
   cp "$ROOT/bin/fm-supervision-lib.sh" "$dir/bin/fm-supervision-lib.sh"
   cp "$ROOT/bin/fm-wake-lib.sh" "$dir/bin/fm-wake-lib.sh"
   cp "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/fm-hook-host-lib.sh"
+  cp "$ROOT/bin/fm-harness-process-lib.sh" "$dir/bin/fm-harness-process-lib.sh"
+  cp "$ROOT/bin/fm-windows-process-lib.sh" "$ROOT/bin/fm-windows-process.ps1" "$dir/bin/"
   cp "$ROOT/bin/fm-session-lock-lib.sh" "$dir/bin/fm-session-lock-lib.sh"
   cp "$ROOT/bin/fm-cursor-lib.sh" "$dir/bin/fm-cursor-lib.sh"
   cp "$ROOT/bin/fm-lock.sh" "$dir/bin/fm-lock.sh"
@@ -1369,7 +1390,7 @@ SH
         FM_TERMINAL_READY="$ready" \
         FM_TERMINAL_RELEASE="$release" \
         FM_TERMINAL_ONCE="$once" \
-        CLAUDECODE=1 FM_HOME="$dir" bash "$dir/bin/fm-turnend-guard.sh" --claude \
+        CLAUDECODE=1 FM_HOME="$dir" "$dir/claude" "$dir/bin/fm-turnend-guard.sh" --claude \
           > "$guard_out" 2>&1
     printf '%s\n' "$?" > "$guard_status"
   ) &
