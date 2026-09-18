@@ -187,12 +187,11 @@ install_guard_scripts() {
   cp "$ROOT/bin/fm-turnend-guard-grok.sh" "$dir/bin/fm-turnend-guard-grok.sh"
   cp "$ROOT/bin/fm-operational-input.sh" "$dir/bin/fm-operational-input.sh"
   cp "$ROOT/bin/fm-supervision-instructions.sh" "$dir/bin/fm-supervision-instructions.sh"
-  cp "$ROOT/bin/fm-harness.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$dir/bin/"
-  cp "$ROOT/bin/fm-windows-process-lib.sh" "$ROOT/bin/fm-windows-process.ps1" "$dir/bin/"
-  cp "$ROOT/bin/fm-primary-scope-lib.sh" "$dir/bin/fm-primary-scope-lib.sh"
-  cp "$ROOT/bin/fm-supervision-lib.sh" "$dir/bin/fm-supervision-lib.sh"
-  cp "$ROOT/bin/fm-wake-lib.sh" "$dir/bin/fm-wake-lib.sh"
-  cp "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/fm-hook-host-lib.sh"
+  cp "$ROOT/bin/fm-harness.sh" "$ROOT/bin/fm-harness-process-lib.sh" \
+    "$ROOT/bin/fm-windows-process-lib.sh" "$ROOT/bin/fm-windows-process.ps1" \
+    "$ROOT/bin/fm-session-lock-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" \
+    "$ROOT/bin/fm-primary-scope-lib.sh" "$ROOT/bin/fm-supervision-lib.sh" \
+    "$ROOT/bin/fm-wake-lib.sh" "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/"
   mkdir -p "$dir/docs"
   cp -R "$ROOT/docs/supervision-protocols" "$dir/docs/supervision-protocols"
   chmod +x "$dir/bin/fm-turnend-guard.sh" "$dir/bin/fm-turnend-guard-grok.sh" "$dir/bin/fm-operational-input.sh" "$dir/bin/fm-supervision-instructions.sh" "$dir/bin/fm-harness.sh"
@@ -889,10 +888,11 @@ test_tracked_claude_entries_inert_under_grok() {
   command -v jq >/dev/null 2>&1 || fail "test host must provide jq"
   dir="$TMP_ROOT/claude-entries-grok-inert"
   mkdir -p "$dir/bin" "$dir/.claude"
-  : > "$dir/AGENTS.md"
-  cp "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-claude-compat-hook.sh" "$dir/bin/"
-  cp "$ROOT/bin/fm-windows-process-lib.sh" "$ROOT/bin/fm-windows-process.ps1" "$dir/bin/"
+  printf '# fixture\n' > "$dir/AGENTS.md"
   cp "$ROOT/.claude/settings.json" "$dir/.claude/settings.json"
+  cp "$ROOT/bin/fm-claude-compat-hook.sh" "$ROOT/bin/fm-hook-host-lib.sh" \
+    "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-windows-process-lib.sh" \
+    "$ROOT/bin/fm-windows-process.ps1" "$ROOT/bin/fm-cursor-lib.sh" "$dir/bin/"
   for script in fm-turnend-guard.sh fm-claude-stop-autoarm.sh fm-sessionstart-run.sh \
     fm-arm-pretool-check.sh fm-cd-pretool-check.sh fm-subagent-pretool-check.sh; do
     printf '#!/usr/bin/env bash\nprintf ran >> %q\n' "$dir/invoked" > "$dir/bin/$script"
@@ -908,21 +908,15 @@ test_tracked_claude_entries_inert_under_grok() {
 
   while IFS= read -r cmd; do
     [ -n "$cmd" ] || continue
-    target=$(printf '%s\n' "$cmd" | awk '
-      {
-        for (i = 1; i < NF; i++) {
-          if ($i ~ /fm-claude-compat-hook\.sh/) {
-            target = $(i + 1)
-          }
-        }
-      }
-      END {
-        gsub(/"/, "", target)
-        print target
-      }
-    ')
-    [ -n "$target" ] || target=$(printf '%s\n' "$cmd" | sed -n 's|.*/bin/\([a-z0-9-]*\.sh\).*|\1|p')
-    [ -n "$target" ] || fail "could not identify the target script of tracked entry: $cmd"
+    case "$cmd" in
+      *fm-subagent-pretool-check.sh*) target=fm-subagent-pretool-check.sh ;;
+      *fm-turnend-guard.sh*) target=fm-turnend-guard.sh ;;
+      *fm-claude-stop-autoarm.sh*) target=fm-claude-stop-autoarm.sh ;;
+      *fm-sessionstart-run.sh*) target=fm-sessionstart-run.sh ;;
+      *fm-arm-pretool-check.sh*) target=fm-arm-pretool-check.sh ;;
+      *fm-cd-pretool-check.sh*) target=fm-cd-pretool-check.sh ;;
+      *) fail "could not identify the target script of tracked entry: $cmd" ;;
+    esac
 
     # Native Claude: EVERY tracked entry must still reach its script, or a guard
     # has silently disarmed Claude's own protection.
@@ -1233,6 +1227,8 @@ install_integrated_autoarm() {
   cp "$ROOT/bin/fm-windows-process-lib.sh" "$ROOT/bin/fm-windows-process.ps1" "$dir/bin/"
   cp "$ROOT/bin/fm-session-lock-lib.sh" "$dir/bin/fm-session-lock-lib.sh"
   cp "$ROOT/bin/fm-cursor-lib.sh" "$dir/bin/fm-cursor-lib.sh"
+  cp "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-windows-process-lib.sh" \
+    "$ROOT/bin/fm-windows-process.ps1" "$dir/bin/"
   cp "$ROOT/bin/fm-lock.sh" "$dir/bin/fm-lock.sh"
   chmod +x "$dir/bin/fm-claude-stop-autoarm.sh" "$dir/bin/fm-lock.sh"
   ln -s /bin/bash "$dir/fake-claude"

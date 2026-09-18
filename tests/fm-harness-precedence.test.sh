@@ -29,7 +29,9 @@ set -u
 
 # This suite states the markers it means to test in every case. Drop the ambient
 # ones so a verdict never depends on which harness launched the suite.
-unset CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT CURSOR_AGENT CURSOR_INVOKED_AS
+unset CLAUDECODE COPILOT_CLI COPILOT_AGENT_SESSION_ID COPILOT_LOADER_PID COPILOT_CLI_BINARY_VERSION \
+  PI_CODING_AGENT FM_PI_HARNESS FM_OMP_HARNESS GROK_AGENT CURSOR_AGENT CURSOR_INVOKED_AS \
+  GEMINI_CLI ATLASSIAN_AGENT_TYPE ROVODEV_CLI
 
 HARNESS="$ROOT/bin/fm-harness.sh"
 RENDER="$ROOT/bin/fm-supervision-instructions.sh"
@@ -120,9 +122,13 @@ with_blind_ancestry() {  # <fakebin> [VAR=VAL ...]
 }
 
 named_bin() {  # <dir> <name>
+  local path shell
   mkdir -p "$1"
-  cp "$(command -v bash)" "$1/$2"
-  printf '%s\n' "$1/$2"
+  path="$1/$2"
+  shell=$(command -v bash) || return 1
+  printf '#!/usr/bin/env bash\nexec -a %q %q "$@"\n' "$path" "$shell" > "$path"
+  chmod +x "$path"
+  printf '%s\n' "$path"
 }
 
 # --- 1. A foreign marker never renames a markerless harness -----------------

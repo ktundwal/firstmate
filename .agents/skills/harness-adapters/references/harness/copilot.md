@@ -1,22 +1,21 @@
 # GitHub Copilot CLI
 
-Verified initially for crew and secondmate dispatch on Linux with Copilot CLI 1.0.73 in the work behind PRs #827 and #1009.
-The current hook and launch contract was refreshed against Copilot CLI 1.0.83-3 and the GitHub Copilot hooks reference on 2026-09-02.
+Verified for primary, crew, and secondmate operation on macOS with Copilot CLI 1.0.86-2 on 2026-09-16 and 2026-09-17, with portable process and hook coverage for Linux and native Windows helpers.
 
 ## Operating facts
 
 | Fact | Value |
 |---|---|
-| Launch | `copilot --no-auto-update --allow-all --no-ask-user -i "<instructions>"`, with optional `--model` and `--effort`; `-i` starts an interactive session and executes the initial prompt. |
+| Launch | `copilot --allow-all --no-ask-user -i "<instructions>"`, with optional `--model` and `--reasoning-effort`; `-i` starts an interactive session and executes the initial prompt. |
 | Busy state | Repository `userPromptSubmitted`, `agentStop`, and `sessionEnd` hooks write the `copilot-hook` semantic source; the completed-turn hook also touches the task turn-end marker. |
 | Exit | `/exit`. |
-| Interrupt | Single Escape. |
+| Interrupt | Unsupported: current Ctrl+C cancellation emits no worker hook that can acknowledge cancellation and settle the semantic busy record, so Firstmate refuses rather than recording false completion. |
 | Skill | Name the skill with a leading slash in the prompt, for example `Use the /no-mistakes skill`; `/skills` manages discovery and enablement. |
 | Resume | `copilot --resume=<session-id>` or `copilot --continue`; deterministic Firstmate recovery still uses relaunch from durable instructions. |
 | Autonomy | `--allow-all` grants tool, path, and URL permissions; `--no-ask-user` removes the interactive question tool from unattended workers. |
 | Marker | `COPILOT_CLI=1` reaches child and hook processes; Firstmate clears inherited `CLAUDECODE`, `CLAUDE_PROJECT_DIR`, `PI_CODING_AGENT`, `FM_PI_HARNESS`, `GROK_AGENT`, `FM_OMP_HARNESS`, `GEMINI_CLI`, `ATLASSIAN_AGENT_TYPE`, `ROVODEV_CLI`, `CURSOR_AGENT`, and `CURSOR_INVOKED_AS` before launching Copilot, and clears `COPILOT_CLI` when launching another adapter so a child cannot inherit the wrong harness identity. |
 | Model | `--model <model>`; discover current availability through `/model`. |
-| Effort | `--effort <low\|medium\|high\|xhigh\|max>`; Copilot also exposes lower `none` and `minimal` values outside Firstmate's shared vocabulary. |
+| Effort | `--reasoning-effort <low\|medium\|high\|xhigh\|max>`; Copilot also exposes lower `none` and `minimal` values outside Firstmate's shared vocabulary. |
 | Composer | Complete half-box using a `╻` plus `▄` top rule, `┃`-prefixed content, and a width-matched `╹` plus `▀` bottom rule. |
 
 The CLI may show a repository trust prompt before hooks and project instructions load.
@@ -25,10 +24,9 @@ An unreadable, changed, or non-default dialog stops the spawn without sending a 
 
 ## Detection and liveness
 
-When `COPILOT_CLI=1` is present, `../../../bin/fm-harness.sh` resolves the nearest verified process ancestry first.
-If that ancestry is inconclusive, existing positive Gemini and Rovo markers keep their established precedence, and only the inherited Copilot-versus-Claude-or-Cursor ambiguity falls back to Copilot.
-It also recognizes the Linux process shapes observed across releases: command name `copilot`, argv zero ending in `/copilot`, or the bundled executable's `MainThread` command with Copilot argv zero.
-The anchored argv-zero rule deliberately does not match editor extensions, plugin paths, or an unrelated command whose later arguments merely mention Copilot.
+`COPILOT_CLI=1` outranks inherited Claude and Cursor markers only when no positive Gemini, Rovo, Pi, or Grok marker is present.
+A structural ancestor of another harness still wins, so a real nested worker cannot be renamed by Copilot's inherited environment.
+Process identity accepts only an exact `copilot` command or argv zero, or the verified Node bundle whose script path ends in `/copilot/bin/copilot`; later-argument mentions and editor paths remain decoys.
 
 Tmux normally reports `copilot` through `#{pane_current_command}` even when the kernel command is `MainThread`.
 `../../../bin/backends/tmux.sh` also applies the shared executable-path identity to the foreground process group, so either independent signal can prove the agent alive.
@@ -38,7 +36,7 @@ Tmux normally reports `copilot` through `#{pane_current_command}` even when the 
 Native Windows process ownership is owned by `../../../bin/fm-windows-process-lib.sh` and its PowerShell process-facts helper.
 When MSYS ancestry is severed, the native Copilot command must carry the session ID that corroborates its published identity; an environment PID alone is not sufficient.
 The Windows launch and hook paths use Git Bash explicitly and carry the launching process's tool PATH.
-Windows receipt and Herdr control-directory privacy checks use `../../../bin/fm-private-path-lib.sh` and its read-only native ACL validator.
+Windows watcher-receipt privacy checks use `../../../bin/fm-private-path-lib.sh` and its read-only native ACL validator.
 The operator must provide a private home; these checks never change ACLs automatically or skip privacy enforcement because POSIX modes are unavailable.
 
 `../../../bin/fm-spawn.sh` writes `.github/hooks/fm-busy-state-<task-id>.json` into a crew or scout worktree and excludes it from git.
@@ -63,4 +61,5 @@ Every non-Copilot Firstmate launch still clears inherited Copilot markers so a g
 
 Primary watcher supervision uses Copilot's attached asynchronous shell task around `../../../bin/fm-watch-arm.sh`.
 The CLI notifies the model when that task completes, and the `agentStop` hook prevents a blind turn end when supervision is required but no healthy cycle exists.
+Watcher notifications accept the observed `notification_type` and `notificationType` generations, case variation in the Firstmate title, and numeric or named shell IDs only while retaining exact title/message correlation and the single-use root/home-bound receipt.
 `../../../docs/supervision-protocols/copilot.md` owns the exact operating loop.

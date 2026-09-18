@@ -23,6 +23,8 @@ if [ -n "${FM_COPILOT_LIVE_TMP_ROOT:-}" ]; then
 else
   TMP_ROOT=$(fm_test_tmproot fm-copilot-primary-live-e2e)
 fi
+COPILOT_HOME="$TMP_ROOT/copilot-home"
+mkdir -p "$COPILOT_HOME"
 
 cleanup_all() {
   "$REAL_TMUX" -L "$SOCKET" kill-server >/dev/null 2>&1 || true
@@ -167,8 +169,8 @@ submit() {  # <prompt>
 }
 
 PRETOOL_PROMPT='Use the bash tool to run exactly: bin/fm-watch-arm.sh &. Then reply exactly: INITIAL_RESPONSE'
-printf -v COPILOT_COMMAND 'exec %q -i %q --allow-all --no-ask-user --no-auto-update --no-remote --no-remote-export' \
-  "$COPILOT_BIN" "$PRETOOL_PROMPT"
+printf -v COPILOT_COMMAND 'exec env COPILOT_HOME=%q %q -i %q --allow-all --no-ask-user --no-remote --no-remote-export' \
+  "$COPILOT_HOME" "$COPILOT_BIN" "$PRETOOL_PROMPT"
 "$REAL_TMUX" -L "$SOCKET" new-session -d -s primary -x 220 -y 60 -c "$REPO" "$COPILOT_COMMAND" \
   || fail "could not start Copilot in the private tmux server"
 
@@ -209,7 +211,7 @@ case "$(cat "$REPO/.hook-modes.log")" in
 esac
 
 # shellcheck disable=SC2016 # Backticks are literal prompt markup.
-WATCHER_PROMPT='Run exactly `bin/fm-watch-arm.sh` as its own attached asynchronous bash task and then stop. After a later Firstmate watcher wake arrives, follow that Firstmate watcher wake instruction exactly and then reply exactly LIVE_WATCH_NOTIFICATION_OK. Never run bin/fm-wake-drain.sh unless a Firstmate watcher wake tells you to.'
+WATCHER_PROMPT='Use the bash tool with description exactly "Arm the FirstMate watcher" to run exactly `bin/fm-watch-arm.sh` as its own attached asynchronous task and then stop. After a later Firstmate watcher wake arrives, follow that Firstmate watcher wake instruction exactly and then reply exactly LIVE_WATCH_NOTIFICATION_OK. Never run bin/fm-wake-drain.sh unless a Firstmate watcher wake tells you to.'
 submit "$WATCHER_PROMPT"
 wait_for_file "$REPO/.wake-ack-count" 300 "the watcher acknowledgement"
 wait_for_pane "LIVE_WATCH_NOTIFICATION_OK" 120 "the watcher completion response"
@@ -221,7 +223,7 @@ assert_contains "$(pane_text)" "LIVE_WATCH_NOTIFICATION_OK" \
   || fail "Copilot did not run the exact WAKE_ACK_REQUIRED acknowledgement after the watcher notification"
 [ "$(cat "$REPO/.wake-ack-args" 2>/dev/null)" = '--ack-through live-seq' ] \
   || fail "Copilot did not use the exact WAKE_ACK_REQUIRED acknowledgement command"
-jq -e '.notification_type == "shell_completed"' "$REPO/.hook-notification-payload.json" >/dev/null \
+jq -e '((.notification_type // .notificationType // "") | ascii_downcase) == "shell_completed"' "$REPO/.hook-notification-payload.json" >/dev/null \
   || fail "the watcher completion did not emit Copilot's shell_completed notification through the tracked hook file"
 
 rm -f "$REPO/.wake-drain-count" "$REPO/.wake-ack-count" "$REPO/.wake-ack-args" "$REPO/.hook-notification-payload.json"
@@ -235,7 +237,7 @@ assert_contains "$(pane_text)" "LIVE_UNRELATED_NOTIFICATION_OK" \
 [ "$(cat "$REPO/background-result" 2>/dev/null)" = LIVE_BACKGROUND_DONE ] \
   || fail "the unrelated attached background shell task did not complete"
 assert_absent "$REPO/.wake-drain-count" "an unrelated completion notification incorrectly triggered bin/fm-wake-drain.sh"
-jq -e '.notification_type == "shell_completed"' "$REPO/.hook-notification-payload.json" >/dev/null \
+jq -e '((.notification_type // .notificationType // "") | ascii_downcase) == "shell_completed"' "$REPO/.hook-notification-payload.json" >/dev/null \
   || fail "the unrelated background completion did not emit Copilot's shell_completed notification through the tracked hook file"
 
 pass "Copilot live hooks: denial, stop continuation, watcher wake, and inert unrelated notifications ($COPILOT_VERSION)"

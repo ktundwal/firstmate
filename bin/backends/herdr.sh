@@ -1678,8 +1678,9 @@ fm_backend_herdr_server_ensure() {  # <session>
   [ "$running" = "true" ] && return 0
   (
     unset FM_HOME FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE \
+      CURSOR_AGENT CURSOR_INVOKED_AS CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT \
       COPILOT_CLI COPILOT_AGENT_SESSION_ID COPILOT_LOADER_PID COPILOT_CLI_BINARY_VERSION \
-      CURSOR_AGENT CURSOR_INVOKED_AS CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT FM_SUPERVISION_MODEL
+      FM_SUPERVISION_MODEL
     fm_backend_herdr_cli "$session" server >/dev/null 2>&1 &
   ) || return 1
   for i in $(seq 1 20); do
@@ -3084,6 +3085,15 @@ fm_backend_herdr_capture() {  # <target> <lines>
   case "$fetch" in ''|*[!0-9]*) fetch=200 ;; *) [ "$fetch" -ge 200 ] || fetch=200 ;; esac
   out=$(fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane read "$FM_BACKEND_HERDR_PANE" --source recent --lines "$fetch" 2>/dev/null) || return 1
   printf '%s' "$out" | tail -n "$lines"
+}
+
+# fm_backend_herdr_visible_capture: the visible viewport only. `--source
+# visible` is herdr's viewport-bounded read, so it needs none of the --lines
+# workaround above - the bound is the pane itself, and asking for a line count
+# is what triggers the empty-read bug.
+fm_backend_herdr_visible_capture() {  # <target>
+  fm_backend_herdr_target_ready "$1" || return 1
+  fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane read "$FM_BACKEND_HERDR_PANE" --source visible 2>/dev/null
 }
 
 fm_backend_herdr_capture_ansi() {  # <target> <lines>

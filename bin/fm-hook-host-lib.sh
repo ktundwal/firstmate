@@ -52,9 +52,10 @@ fm_hook_actual_host() {
           ;;
       esac
     fi
+    [ "$pid" -eq 1 ] && break
     pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
     case "$pid" in ''|*[!0-9]*) break ;; esac
-    [ "$pid" -gt 1 ] || break
+    [ "$pid" -ge 1 ] || break
   done
   printf 'unknown\n'
 }

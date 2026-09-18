@@ -89,10 +89,6 @@ fm_agent_process_classify_name() {  # <path> [argv0] -> agent|shell|other
 #            live process instead of the flattened line.
 fm_agent_process_classify() {  # <name> <argv0> <args> [pid] -> agent|shell|other
   local name=${1:-} argv0=${2:-} args=${3:-} pid=${4:-} by_name by_argv0
-  if fm_harness_process_matches_live "$name" "$args" && [ "$FM_HARNESS_MATCH_NAME" = copilot ]; then
-    printf 'agent'
-    return 0
-  fi
   by_name=$(fm_agent_process_classify_name "$name" "$argv0")
   [ "$by_name" != agent ] || { printf 'agent'; return 0; }
   if [ -n "$argv0" ]; then
@@ -108,6 +104,10 @@ fm_agent_process_classify() {  # <name> <argv0> <args> [pid] -> agent|shell|othe
     return 0
   fi
   if [ -n "$args" ] && fm_gemini_args_are_gemini "$args"; then
+    printf 'agent'
+    return 0
+  fi
+  if fm_harness_process_matches_live "$name" "$args" && [ "$FM_HARNESS_MATCH_NAME" = copilot ]; then
     printf 'agent'
     return 0
   fi

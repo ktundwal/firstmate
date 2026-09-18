@@ -376,7 +376,6 @@ print_watch_output() {
   local out=$1
   [ -s "$out" ] && cat "$out"
 }
-
 copilot_publish_completion_receipt() {
   [ "$(fm_hook_actual_host)" = copilot ] || return 0
   fm_copilot_watch_receipt_publish "$FM_ROOT" "$FM_HOME" "$STATE"
@@ -387,6 +386,7 @@ copilot_publish_completion_receipt_nonfatal() {
   echo "watcher: warning: copilot watcher completion receipt could not be written" >&2
   return 0
 }
+
 
 handling_successor_generation() {
   [ -n "${FM_WATCH_PREDECESSOR_ARM_PID:-}" ] || return 0
@@ -508,12 +508,12 @@ owned_child_finished() {
   signal=$(cycle_signal_name "$rc")
   if [ "$rc" -eq 0 ] && watch_output_has_wake "$child_out"; then
     reason_type=$(watch_output_reason_type "$child_out")
+    copilot_publish_completion_receipt_nonfatal
+    cycle_log_append "$rc" "$signal" "$reason_type" none
     print_watch_output "$child_out"
     rm -f "$child_out" 2>/dev/null || true
     child=
     child_out=
-    copilot_publish_completion_receipt_nonfatal
-    cycle_log_append "$rc" "$signal" "$reason_type" none
     return 0
   fi
 

@@ -902,7 +902,6 @@ function blessedProgram(analysis, context) {
   }
   return true;
 }
-
 function resolvedCommandPath(value, cwd) {
   if (!value) return "";
   return path.normalize(path.isAbsolute(value) ? value : path.resolve(cwd, value));
@@ -927,6 +926,7 @@ export function isBlessedWatcherArmCommand(command, root, home) {
   }
   return resolvedCommandPath(finalNode.position.command?.value, context.root) === path.join(context.root, "bin/fm-watch-arm.sh");
 }
+
 
 function decision(command, root, home) {
   const context = { root: path.normalize(root), home: path.normalize(home), protectedVariables: new Set(), watcherPatterns: new Set(), watcherPids: new Set() };

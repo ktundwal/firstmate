@@ -778,7 +778,10 @@ test_notification_injects_watcher_followup_only_for_watcher_arm_completion() {
   printf '%s' '{"notification_type":"shell_completed","command":"[ -f config/x-mode.env ] && . config/x-mode.env; exec ./bin/fm-watch-arm.sh","success":true}' > "$dir/command-success-without-receipt.json"
   out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
     ./bin/fm-copilot-hook.sh notification < "$dir/command-success-without-receipt.json")
-  assert_watcher_followup "$out" "Copilot command-bearing watcher notification without receipt but with success evidence"
+  [ -z "$out" ] || fail "a structured-success watcher completion without a receipt must stay inert, got: $out"
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh notification < "$dir/command-success-without-receipt.json")
+  [ -z "$out" ] || fail "a repeated structured-success watcher completion without a receipt must stay inert, got: $out"
 
   printf '%s' '{"notification_type":"shell_completed","command":"[ -f config/x-mode.env ] && . config/x-mode.env; exec ./bin/fm-watch-arm.sh","success":false}' > "$dir/command-explicit-failure.json"
   out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
@@ -829,6 +832,12 @@ test_notification_injects_watcher_followup_only_for_watcher_arm_completion() {
   out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
     ./bin/fm-copilot-hook.sh notification < "$dir/live-shape-the.json")
   assert_watcher_followup "$out" "Copilot alternate live watcher title"
+  printf '%s' '{"notificationType":"SHELL_COMPLETED","hook_event_name":"Notification","title":"Arm the FirstMate watcher","message":"Shell command \"Arm the FirstMate watcher\" (shellId: firstmate-watch.v2) has completed successfully. Use read_bash with shellId \"firstmate-watch.v2\" to retrieve the output.","command":null,"commandLine":null,"command_line":null}' > "$dir/live-shape-camel-named.json"
+  copilot_watch_receipt_publish "$dir" "$dir" "$dir/state" || fail "could not publish a camelCase watcher receipt"
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh notification < "$dir/live-shape-camel-named.json")
+  assert_watcher_followup "$out" "Copilot camelCase notification with FirstMate casing and named shell id"
+
 
   sibling="$TMP_ROOT/notification-watcher-sibling"
   mkdir -p "$sibling/config"
@@ -902,7 +911,7 @@ test_notification_injects_watcher_followup_only_for_watcher_arm_completion() {
   out=$(cd "$dir" && PATH="$fakebin:$no_node_path" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
     ./bin/fm-copilot-hook.sh notification < "$dir/live-shape.json")
   assert_watcher_followup "$out" "Copilot title-only watcher notification without node"
-  pass "Copilot notifications accept receiptless command success evidence but still require receipts for title-only payloads"
+  pass "Copilot notifications require single-use watcher receipts for command and title payloads"
 }
 
 test_notification_requires_primary_scope() {
