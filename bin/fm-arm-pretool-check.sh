@@ -55,7 +55,8 @@ With no --command, reads a PreToolUse-style JSON payload on stdin (Copilot
 toolArgs.command, Grok toolInput.command, or Claude/Codex/Cursor tool_input.command).
 Exits 0 to allow and 2 to deny.
 The deny reason is written to stderr, with a Grok decision object on stdout
-unless --claude is supplied.
+unless --claude or --copilot is supplied.
+With --copilot, a deny is Copilot's decision object on stdout and exit 0.
 With --cursor, a deny is Cursor's own decision object on stdout and exit 0,
 because Cursor reads the returned object rather than the exit status.
 Malformed transport and an unavailable classifier runtime fail open.
