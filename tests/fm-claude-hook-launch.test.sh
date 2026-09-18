@@ -12,9 +12,8 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-fm_live_gate default-on FM_LIVE_PWSH pwsh
+fm_live_gate default-on FM_LIVE_PWSH pwsh cygpath git.exe
 
-LAUNCHER="$ROOT/bin/fm-claude-hook-launch.ps1"
 SETTINGS="$ROOT/.claude/settings.json"
 TMP_ROOT=$(fm_test_tmproot fm-claude-hook-launch-tests)
 OUT="$TMP_ROOT/out"

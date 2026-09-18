@@ -7,7 +7,7 @@ Firstmate ships two session-open tiers, and the tier is a property of the harnes
 
 | Tier | What the adapter does | Used by |
 | --- | --- | --- |
-| Run | Executes `bin/fm-session-start.sh` through the native session-open adapter and gates its ordered digest into model context before the first turn. | Claude, GitHub Copilot CLI, `codex exec`, Pi / pi-signed, omp, Cursor |
+| Run | Executes `bin/fm-session-start.sh` through the native session-open adapter and gates its ordered digest into model context before the first turn. | Claude, `codex exec`, Copilot, Pi / pi-signed, omp, Cursor |
 | Nudge | Asks the agent to run the digest through the native adapter or the tracked session-start instruction. | Grok, OpenCode, and run-tier sources routed to the nudge |
 
 Codex's interactive TUI has no tracked session-open, compaction, or re-emit channel and is not covered by either tier.
@@ -59,8 +59,8 @@ The Guard Predicates section of [`turnend-guard.md`](turnend-guard.md#guard-pred
 The nudge payload starts with U+2063 and the stable `FIRSTMATE_OP: ` label, carries the current `session-start` protocol kind, and retains exactly ``Run `bin/fm-session-start.sh` now, exactly once, before executing any other instructions.`` as its body.
 The Ahoy skill owns the rule that this marked operational input is never a captain-authored session boundary, including its narrow legacy compatibility cases, and its own step 0 helm check is the fallback that protects a nudge-tier harness whose first command is a skill.
 
-Before printing, the nudge wrapper reads `state/.lock` and walks at most eight parents from its own pid in its own separate, hard-coded loop, independent of `bin/fm-lock.sh`'s ancestry walk (`fm_harness_ancestry_pid()` in `bin/fm-session-lock-lib.sh`, which now walks up to sixteen parents and can extend past a claude-named match to a still-more-ancestral one) and of Pi's `lockOwnership()`.
-If the lock names a live pid in that ancestry, session start already ran in this harness session and the wrapper stays silent.
+Before printing, the nudge wrapper reads `state/.lock`; numeric owners use its bounded parent walk, while native Windows identities delegate to the shared session-lock ownership predicate.
+`bin/fm-harness-process-lib.sh` owns the common harness ancestry and native identity vocabulary used by lock acquisition and ownership checks.
 Every ordinary transport path in both wrappers exits 0, including malformed state and adapter errors, because a Claude SessionStart exit 2 blocks session initialization.
 The run wrapper's internal `--pi-prerequisite` mode uses silent exit 3 only for an intentional gate or scope stand-down, letting Pi distinguish ineligibility from an eligible empty native result without changing any harness hook's exit contract.
 A lock another session holds and a truncated digest therefore surface as digest text, while broken GitHub auth surfaces through the deferred network result inline or as a wake; none becomes a refusal to open the session.
@@ -70,7 +70,7 @@ A lock another session holds and a truncated digest therefore surface as digest 
 | Harness | Tier | Tracked transport | Current compatibility |
 | --- | --- | --- | --- |
 | Claude | Run | `.claude/settings.json` registers one unmatched `SessionStart` hook, invoked through `CLAUDE_PROJECT_DIR` with a 180s timeout; the wrapper reads `source` from the hook payload. | Native stdout context injection is supported. |
-| GitHub Copilot CLI | Run | `.github/hooks/fm-primary.json` registers native `sessionStart` and invokes `bin/fm-copilot-hook.sh` with a 180s timeout; the adapter passes the native payload to the run wrapper and returns the digest as `additionalContext`. | New and resumed interactive sessions use the documented `startup`, `resume`, or `new` source. |
+| Copilot | Run | `.github/hooks/fm-primary.json` invokes `bin/fm-copilot-hook.sh session-start`, which calls the wrapper with `--copilot` and returns its output as `additionalContext`. | Native stdout context injection is supported in the interactive TUI. |
 | Codex exec | Run | `.codex/hooks.json` anchors to the hook process working directory, verifies a Firstmate-shaped hook-bearing root, and pipes the hook payload into the wrapper with a 180s timeout. | Native stdout context injection is supported under `codex exec`. |
 | Codex interactive TUI | Uncovered | None. | Codex 0.146.0 does not fire the tracked project `SessionStart` hook in its interactive TUI; Firstmate ships no global hook, has no tracked compaction or re-emit channel, and does not claim instruction-refresh delivery for this surface. |
 | Pi / pi-signed | Run | `.pi/extensions/fm-primary-turnend-guard.ts` maps `session_start` reasons `startup`, `new`, `resume`, and `fork` onto wrapper sources, refines a Pi-reported `startup` to `resume` only when a continuation, resume-selection, or explicit-session flag accompanies a session header older than the current process, maps a fork flag to `fork`, and handles `session_compact` as the compaction equivalent; setup-created entries such as `--name` are not restoration evidence. | Each mapped session generation starts one native prerequisite, and `before_agent_start` awaits its matching result and returns one persistent context message before the first provider call; Pi's `reload` reason is deliberately unmapped, as it always was. |
@@ -81,7 +81,6 @@ A lock another session holds and a truncated digest therefore surface as digest 
 | Cursor compaction | Uncovered | None. | Cursor's `preCompact` response can return only `user_message` and is absent from Cursor's `additional_context` step set, so it cannot inject a re-emit digest. Delivering one needs its own design and is deliberately deferred to a follow-up; a Cursor primary does not re-emit its digest after a compaction. |
 
 Cursor's `sessionStart` fires at every session open with no source distinction, including a resumed session, so a resume re-runs the full digest; that is redundant and idempotent rather than a lost helm.
-Copilot also reads `.claude/settings.json`, but the session-start compatibility boundary is the verified actual-host rule in [`configuration.md`](configuration.md#harness-support), so the native `.github/hooks/` registration remains the only session-start owner for a real Copilot host.
 Cursor's compaction surface is uncovered in the same sense as Codex's interactive TUI above: Firstmate registers nothing for `preCompact`, so a compacted Cursor session keeps whatever context survived rather than receiving a fresh digest.
 
 Pi is the only adapter that injects a message rather than hook stdout, so whatever it injects must carry operational provenance or the Ahoy skill would have to guess whether it was captain-authored.
@@ -108,9 +107,8 @@ The same portable suite proves provider exclusion until settlement, exactly-one 
 `tests/fm-session-start.test.sh` proves the runtime bound through the forced pure-Bash fallback: a TERM-resistant digest that exceeds its budget is force-killed with its grandchild, still emits its completed stages, names the incomplete stage and every stage it never reached, leaves no completion proof, and exits 0.
 `tests/fm-pi-primary-live-e2e.test.sh` and `tests/fm-opencode-primary-live-e2e.test.sh` exercise native startup paths with first-message and later-message Ahoy regressions.
 `tests/fm-cursor-primary.test.sh` proves the Cursor adapter over real processes: `sessionStart` emits the whole digest as `additional_context` with a caller-supplied `--source`, stays silent in a child worktree, lets the run wrapper stand down on the Cursor-delivered duplicate, and keeps `preCompact` unregistered so the deferred surface cannot be reintroduced unnoticed.
-`tests/fm-copilot-harness.test.sh` proves the Copilot adapter's `additionalContext` translation and duplicate Claude-hook suppression.
-`FM_COPILOT_LIVE_E2E=1 tests/fm-copilot-primary-live-e2e.test.sh` proves native Copilot session-start context, PreToolUse denial, and bounded agentStop continuation.
 `FM_CURSOR_PRIMARY_LIVE_E2E=1 tests/fm-cursor-primary-live-e2e.test.sh` proves the injected digest actually reaches model context in a real cursor-agent session.
+`FM_COPILOT_LIVE_E2E=1 tests/fm-copilot-primary-live-e2e.test.sh` refreshes Copilot session-start, turn-end, and watcher-notification delivery together.
 `tests/fm-sessionstart-hook-live-e2e.test.sh` is the opt-in live guard for the Claude, Codex exec, and Pi run-tier adapters; it confirms each installed adapter in that suite invokes the run wrapper and delivers its output into context.
 It verifies context-preserving reopen sources for those adapters and context-reset delivery wherever their tracked TUI surface is reachable.
 Its separate `FM_PI_SESSIONSTART_RACE_LIVE_E2E=1` mode uses real Pi with an offline deterministic provider and a barrier-controlled `/new` digest, proving both an immediate prompt and a completed-before-prompt control make their first provider call with exactly one native startup context and no manual execution.

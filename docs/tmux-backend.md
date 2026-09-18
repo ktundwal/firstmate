@@ -48,7 +48,7 @@ Verify setup by spawning a small task and confirming its `fm-<id>` window appear
 
 A target-existence check proves only that the pane exists.
 The deeper tmux agent-liveness probe first verifies exact window membership, then reads process names to distinguish a running harness from a bare idle shell.
-It classifies recognized Claude, Codex, GitHub Copilot CLI, OpenCode, Pi, pi-signed, Grok, Kimi, Cursor, Muse, Rovo, omp, and AGY process identities as `alive`, common shells as `dead`, an authoritatively absent window as `missing`, unreadable state as `unreadable`, and every other process as `ambiguous`.
+It classifies recognized Claude, Codex, Copilot, OpenCode, Pi, pi-signed, Grok, Kimi, Cursor, Muse, Rovo, and AGY process identities as `alive`, common shells as `dead`, an authoritatively absent window as `missing`, unreadable state as `unreadable`, and every other process as `ambiguous`.
 The process-name vocabulary behind those verdicts is owned by `bin/fm-agent-process-lib.sh` and shared with the Herdr adapter, which proves a registered agent against the same names ([herdr-backend.md](herdr-backend.md) "Restart and liveness behavior").
 Only `dead` and `missing` authorize recovery because a false dead result could launch a duplicate agent.
 
@@ -56,6 +56,7 @@ For positive attribution, the probe combines two independent name sources rather
 `#{pane_current_command}` and the pane tty foreground process group's kernel `comm` values expose different name fields, and which one retains executable identity is platform-dependent.
 The foreground probe also reads argv[0] so an exact harness install-path component can carry the verdict when the other fields expose a rewritten process name.
 Either source naming a verified harness is enough for `alive`, because a false `dead` is the one verdict that can start a duplicate agent on a live worktree, while a readable foreground process group settles the negative verdicts.
+Copilot's exact foreground executable or verified Node bundle can prove liveness; a stale `#{pane_current_command}=copilot` without matching foreground identity remains ambiguous rather than reviving a dead session.
 
 Scoping the second source to the foreground process group rather than to the pane's descendants is deliberate: a harness-named process left running in the background of an otherwise idle pane must not read as an agent.
 The same scoping covers multi-process launchers without a special case, so the Pi Launcher path is attributed through its `pi-signed` wrapper and `pi` engine even though its title is the exact foreground command `pi-launcher`.
@@ -64,8 +65,6 @@ Muse is likewise anchored to the exact `muse` launcher identity or the installed
 omp is anchored to the exact `omp` identity for the same reason, so `ompd` and `comp` remain ambiguous.
 AGY is anchored to the exact `agy` identity for the same reason, so unrelated names containing that fragment remain ambiguous.
 Cursor is identified from its exact `cursor-agent` identity or versioned install tree in the foreground process path or structured argv[0]; a bare `node` or unrelated `agent` remains ambiguous.
-Copilot is identified only from the exact `copilot` command or from an executable or argv[0] basename of `copilot`.
-That preserves identity when its bundled Linux executable reports the generic kernel command `MainThread` while argv zero remains Copilot, without treating a `/copilot/` directory name as evidence.
 
 The CI-enforced portable regression and opt-in real-harness drift guard follow the split owned by `.agents/skills/firstmate-coding-guidelines/SKILL.md`.
 Run the real-harness guard after any harness upgrade and before trusting refreshed evidence.
@@ -74,12 +73,9 @@ Run the real-harness guard after any harness upgrade and before trusting refresh
 
 Agent liveness and composer safety are separate checks.
 The tmux reader is a thin adapter over the fleet-wide classifier in `bin/fm-composer-lib.sh`: it contributes one styled full-pane capture, the `#{cursor_y}` cursor row, and foreground-process identity probes, and the shape containing the cursor - a complete bordered box (titled bottom borders tolerated), a bare agent-glyph row with its wrapped input, opencode's left bar, or Pi's identity-corroborated separator pair - normally decides the verdict.
-Copilot's current composer is a complete half-box: `╻` plus a `▄` rule, one or more `┃`-prefixed content rows, and a width-matched `╹` plus `▀` rule.
-Only that complete structure lets its blank single-`┃` content row classify empty.
 Real text in an identified shape is pending, while only positively proven emptiness reads empty.
-A blank or otherwise unidentified cursor row is `unknown` and every consumer defers, except that a foreground process proven to be Cursor or Copilot is re-read cursorlessly because both park the terminal cursor outside the composer.
-Copilot still requires its complete half-box and live identity on the second pass.
-Those identity-gated exceptions preserve the strict container-proof rule for every other pane, so a modal dialog, a dead shell between stale rules, or a mid-redraw pane is never an injection target.
+A blank or otherwise unidentified cursor row is `unknown` and every consumer defers, except that a foreground process proven to be Cursor is re-read cursorlessly because Cursor parks its terminal cursor below its footer.
+That identity-gated exception preserves the strict container-proof rule for every other pane, so a modal dialog, a dead shell between stale rules, or a mid-redraw pane is never an injection target.
 The shared classifier accepts a shell glyph as an empty agent composer only inside a bordered container.
 A bare shell prompt is `unknown`, so away-mode escalation is never injected into a dead shell.
 

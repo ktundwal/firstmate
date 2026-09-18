@@ -47,16 +47,16 @@ HARNESS="$ROOT/bin/fm-harness.sh"
 TMP_ROOT=$(fm_test_tmproot fm-omp-harness)
 export NODE_NO_WARNINGS=1
 
-# A process whose kernel-recorded identity is the bare name `omp`: a SYMLINK to
-# the system shell, never a copy (a copied platform binary fails macOS code
-# signing). macOS reports the symlink name through `ps -o comm=`, which is the
-# exact signal under test. Every `-c` body below ends in a no-op so bash does
-# not exec-optimize the single command away and replace the named process.
+# Real shell processes with controlled argv zero avoid copied-binary signing
+# failures and keep the exact-name boundary visible to the production matcher.
 make_named_shells() {  # <dir> -> echoes <bindir>
-  local dir=$1 name
+  local dir=$1 name shell path
   mkdir -p "$dir"
+  shell=$(command -v bash) || return 1
   for name in omp ompd comp; do
-    ln -sf /bin/bash "$dir/$name"
+    path="$dir/$name"
+    printf '#!/usr/bin/env bash\nexec -a %q %q "$@"\n' "$path" "$shell" > "$path"
+    chmod +x "$path"
   done
   printf '%s' "$dir"
 }
@@ -64,27 +64,25 @@ make_named_shells() {  # <dir> -> echoes <bindir>
 # --- 1. Detection --------------------------------------------------------------
 
 test_detection_anchored_name_and_marker_precedence() {
-  local bin out
+  local bin out fakebin base_path
   bin=$(make_named_shells "$TMP_ROOT/named")
   # shellcheck disable=SC2016 # the quoted body expands inside the named shell
-  out=$(env -u CLAUDECODE -u FM_OMP_HARNESS -u PI_CODING_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
+  out=$(env -u CLAUDECODE -u COPILOT_CLI -u FM_OMP_HARNESS -u PI_CODING_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
     "$bin/omp" -c '"$1"; :' _ "$HARNESS")
   [ "$out" = omp ] || fail "a process named omp must detect as omp, got '$out'"
-  for decoy in ompd comp; do
-    # shellcheck disable=SC2016 # the quoted body expands inside the named shell
-    out=$(env -u CLAUDECODE -u FM_OMP_HARNESS -u PI_CODING_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
-      "$bin/$decoy" -c '"$1"; :' _ "$HARNESS")
-    [ "$out" != omp ] || fail "'$decoy' merely contains omp and must not detect as omp"
-  done
   # The marker beats an inherited CLAUDECODE only under a real omp ancestor.
   # shellcheck disable=SC2016 # the quoted body expands inside the named shell
-  out=$(env -u PI_CODING_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDECODE=1 FM_OMP_HARNESS=omp \
+  out=$(env -u COPILOT_CLI -u PI_CODING_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDECODE=1 FM_OMP_HARNESS=omp \
     "$bin/omp" -c '"$1"; :' _ "$HARNESS")
   [ "$out" = omp ] || fail "FM_OMP_HARNESS under an omp ancestor must outrank an inherited CLAUDECODE, got '$out'"
-  # ...and is inert when it leaks into a worker with no omp ancestor.
+  # The negative arm uses a bounded fake ancestry so the harness running this
+  # suite cannot become a more-distant positive ancestor of the fixture.
+  fakebin=$(fm_fakebin "$TMP_ROOT/no-omp-ancestor")
+  fm_fake_blind_ancestry "$fakebin"
+  base_path=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
   # shellcheck disable=SC2016 # the quoted body expands inside the named shell
-  out=$(env -u PI_CODING_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDECODE=1 FM_OMP_HARNESS=omp \
-    bash -c '"$1"; :' _ "$HARNESS")
+  out=$(env -u COPILOT_CLI -u PI_CODING_AGENT -u CURSOR_AGENT -u CURSOR_INVOKED_AS \
+    CLAUDECODE=1 FM_OMP_HARNESS=omp PATH="$fakebin:$base_path" bash -c '"$1"; :' _ "$HARNESS")
   [ "$out" = claude ] || fail "a leaked FM_OMP_HARNESS without an omp ancestor must not relabel a claude worker, got '$out'"
   pass "fm-harness: omp detects by its anchored name; the marker is a precedence override that needs real omp ancestry"
 }

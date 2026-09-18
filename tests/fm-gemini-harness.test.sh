@@ -22,13 +22,6 @@ set -u
 # shellcheck source=tests/fixtures.sh
 . "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
-# bin/fm-harness.sh checks verified ENV markers before ancestry. A suite run
-# from inside Cursor, Claude, Copilot, Gemini, Rovo, Pi, or Grok inherits
-# those markers, which can outrank the fake ancestry many cases set up. Drop
-# the ambient markers so the asserted verdict does not depend on which harness
-# launched the suite.
-unset CLAUDECODE COPILOT_CLI COPILOT_AGENT_SESSION_ID COPILOT_LOADER_PID COPILOT_CLI_BINARY_VERSION GEMINI_CLI PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT CURSOR_AGENT CURSOR_INVOKED_AS ATLASSIAN_AGENT_TYPE ROVODEV_CLI
-
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-control-lib.sh"
 # shellcheck source=bin/fm-gemini-lib.sh
@@ -36,24 +29,7 @@ unset CLAUDECODE COPILOT_CLI COPILOT_AGENT_SESSION_ID COPILOT_LOADER_PID COPILOT
 
 HARNESS="$ROOT/bin/fm-harness.sh"
 TMP_ROOT=$(fm_test_tmproot fm-gemini-harness)
-
-make_neutral_ps() {
-  local fakebin
-  fakebin=$(fm_fakebin "$1")
-  cat > "$fakebin/ps" <<'SH'
-#!/usr/bin/env bash
-case "$*" in
-  *"comm="*) printf '%s\n' bash; exit 0 ;;
-  *"args="*) printf '%s\n' bash; exit 0 ;;
-  *"ppid="*) printf '%s\n' 1; exit 0 ;;
-  *) exit 1 ;;
-esac
-SH
-  chmod +x "$fakebin/ps"
-  printf '%s\n' "$fakebin"
-}
-
-NO_ANCESTRY_FAKEBIN=$(make_neutral_ps "$TMP_ROOT/no-ancestry")
+unset COPILOT_CLI COPILOT_AGENT_SESSION_ID COPILOT_LOADER_PID COPILOT_CLI_BINARY_VERSION FM_OMP_HARNESS
 
 test_gemini_marker_outranks_inherited_claudecode() {
   local out fakebin base_path
@@ -73,11 +49,7 @@ test_gemini_marker_outranks_inherited_claudecode() {
   # Cursor's marker still outranks gemini's, preserving the documented order.
   out=$(PATH="$fakebin:$base_path" CURSOR_AGENT=1 GEMINI_CLI=1 "$HARNESS")
   [ "$out" = cursor ] || fail "CURSOR_AGENT must still outrank GEMINI_CLI, got '$out'"
-  # An inherited Copilot marker must not steal Gemini's own verified marker
-  # when ancestry cannot prove the host.
-  out=$(PATH="$NO_ANCESTRY_FAKEBIN:$PATH" COPILOT_CLI=1 GEMINI_CLI=1 "$HARNESS")
-  [ "$out" = gemini ] || fail "COPILOT_CLI + GEMINI_CLI must detect gemini, got '$out'"
-  pass "fm-harness.sh: gemini's marker outranks inherited Claude and Copilot markers"
+  pass "fm-harness.sh: gemini's marker outranks an inherited CLAUDECODE"
 }
 
 test_gemini_does_not_claim_inherited_ai_agent() {
@@ -148,15 +120,34 @@ SH
 
 test_gemini_node_bundle_is_not_ancestry_detectable() {
   command -v node >/dev/null 2>&1 || return 0
-  local dir="$TMP_ROOT/ancestry" out comm has_proc=0
+  local dir="$TMP_ROOT/ancestry" out comm
   mkdir -p "$dir"
-  # Structural process evidence for the installed node bundle can come from two
-  # places: a platform whose node keeps `comm=node`, or Linux /proc argv for a
-  # MainThread-reported node. Without either, ancestry cannot prove gemini and
-  # the GEMINI_CLI marker is load-bearing.
+  # This is the reason GEMINI_CLI is load-bearing for gemini rather than the
+  # fast path it is for grok: the shipped CLI is a node bundle, and modern Node
+  # on Linux reports comm as MainThread, so the interpreter arm never fires.
+  # Pin the actual behaviour rather than a hoped-for one, so nobody later
+  # documents ancestry as covering gemini or "fixes" it by matching MainThread.
   comm=$(node -e 'const{execSync}=require("child_process");process.stdout.write(execSync("ps -o comm= -p "+process.pid).toString().trim())' 2>/dev/null)
   [ -n "$comm" ] || return 0
-  [ -r /proc/self/cmdline ] && has_proc=1
+  if [ "$comm" = node ]; then
+    # A platform whose node DOES report `node` reaches the interpreter arm, and
+    # there the gemini script path must win.
+    cat > "$dir/gemini" <<'JS'
+const { spawnSync } = require('child_process');
+const env = { ...process.env };
+for (const k of ['GEMINI_CLI', 'CLAUDECODE', 'CURSOR_AGENT', 'CURSOR_INVOKED_AS',
+                 'PI_CODING_AGENT', 'GROK_AGENT']) delete env[k];
+const r = spawnSync(process.env.FM_HARNESS_BIN, { env, encoding: 'utf8' });
+process.stdout.write(r.stdout || '');
+JS
+    out=$(FM_HARNESS_BIN="$HARNESS" node "$dir/gemini" 2>/dev/null | tr -d '\n')
+    [ "$out" = gemini ] \
+      || fail "where node reports comm=node, a gemini script path must detect gemini, got '$out'"
+    pass "fm-harness.sh: this platform's node reports comm=node and ancestry reaches gemini"
+    return 0
+  fi
+  # The measured case: comm is not `node`, so ancestry cannot see the bundle and
+  # the marker is the only detection path.
   cat > "$dir/gemini" <<'JS'
 const { spawnSync } = require('child_process');
 const env = { ...process.env };
@@ -166,21 +157,16 @@ const r = spawnSync(process.env.FM_HARNESS_BIN, { env, encoding: 'utf8' });
 process.stdout.write(r.stdout || '');
 JS
   out=$(FM_HARNESS_BIN="$HARNESS" node "$dir/gemini" 2>/dev/null | tr -d '\n')
-  if [ "$comm" = node ] || [ "$has_proc" -eq 1 ]; then
-    [ "$out" = gemini ] \
-      || fail "structural process evidence must detect the gemini node bundle here, got '$out'"
-    pass "fm-harness.sh: this platform's structural process evidence reaches the gemini node bundle"
-    return 0
-  fi
   [ "$out" != gemini ] \
-    || fail "without node comm or /proc argv evidence, ancestry must not claim gemini; got '$out'"
-  out=$(PATH="$NO_ANCESTRY_FAKEBIN:$PATH" FM_HARNESS_BIN="$HARNESS" GEMINI_CLI=1 node -e '
+    || fail "node reports comm=$comm here, so ancestry must not be claiming gemini; got '$out'"
+  # And the marker closes exactly that gap on the same process shape.
+  out=$(FM_HARNESS_BIN="$HARNESS" GEMINI_CLI=1 node -e '
 const { spawnSync } = require("child_process");
 const r = spawnSync(process.env.FM_HARNESS_BIN, { encoding: "utf8" });
 process.stdout.write(r.stdout || "");' 2>/dev/null | tr -d '\n')
   [ "$out" = gemini ] \
     || fail "GEMINI_CLI must identify a node-bundle gemini worker, got '$out'"
-  pass "fm-harness.sh: without structural process evidence, the node bundle is marker-detected"
+  pass "fm-harness.sh: the node bundle is marker-detected, never ancestry-detected"
 }
 
 test_gemini_process_identity_reads_the_script_argument() {

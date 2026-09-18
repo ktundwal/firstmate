@@ -61,10 +61,15 @@ fm_control_verb_allowed() {  # <verb>
 # The harnesses whose control mechanics are verified. Mirrors AGENTS.md
 # section 4's verified-adapter list; an unverified adapter is refused rather
 # than guessed at, exactly as a spawn on it would be.
+fm_control_harnesses() {
+  printf '%s\n' claude codex copilot opencode pi pi-signed grok kimi cursor gemini muse rovo omp agy
+}
+
 fm_control_harness_supported() {  # <harness>
-  case "${1-}" in
-    claude|codex|copilot|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy) return 0 ;;
-  esac
+  local harness
+  while read -r harness; do
+    [ "$harness" = "${1-}" ] && return 0
+  done < <(fm_control_harnesses)
   return 1
 }
 
@@ -83,9 +88,9 @@ fm_control_harness_family() {  # <recorded-harness>
     pi-signed) printf 'pi-signed' ;;
     omp) printf 'omp' ;;
     agy) printf 'agy' ;;
+    copilot*) printf 'copilot' ;;
     claude*) printf 'claude' ;;
     codex*) printf 'codex' ;;
-    copilot*) printf 'copilot' ;;
     opencode*) printf 'opencode' ;;
     grok*) printf 'grok' ;;
     kimi*) printf 'kimi' ;;
@@ -122,9 +127,13 @@ fm_control_harness_supports_kind() {  # <harness> <kind>
 # Herdr). omp (Oh My Pi) shares Pi's single Escape, empty composer
 # afterwards, and /quit exit (verified omp 18.1.2 in a PTY, re-verified 18.1.11
 # through Herdr).
+# Copilot is deliberately absent: current Copilot CLI cancels a running tool on
+# Ctrl+C but emits no worker hook that can acknowledge cancellation and settle
+# the semantic busy record. Refuse interrupt rather than report key delivery as
+# completed lifecycle control.
 fm_control_interrupt_key() {  # <harness>
   case "${1-}" in
-    claude|codex|copilot|opencode|pi|pi-signed|omp|kimi|cursor|gemini|muse|rovo|agy) printf 'Escape' ;;
+    claude|codex|opencode|pi|pi-signed|omp|kimi|cursor|gemini|muse|rovo|agy) printf 'Escape' ;;
     grok) printf 'C-c' ;;
     *) return 1 ;;
   esac
@@ -135,7 +144,7 @@ fm_control_interrupt_key() {  # <harness>
 fm_control_interrupt_repeat() {  # <harness>
   case "${1-}" in
     opencode) printf '2' ;;
-    claude|codex|copilot|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy) printf '1' ;;
+    claude|codex|pi|pi-signed|omp|grok|kimi|cursor|gemini|muse|rovo|agy) printf '1' ;;
     *) return 1 ;;
   esac
 }
@@ -156,7 +165,7 @@ fm_control_interrupt_repeat() {  # <harness>
 fm_control_interrupt_clear_key() {  # <harness>
   case "${1-}" in
     muse) printf 'C-u' ;;
-    claude|codex|copilot|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo|agy) ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo|agy) ;;
     *) return 1 ;;
   esac
 }
@@ -171,7 +180,7 @@ fm_control_interrupt_ack_source() {  # <harness>
     # rovo's TUI prints "Agent cancelled" on Escape, but for parity with
     # claude/cursor this stays 'none': the ack is a rendered string, not a
     # recorded state source, and rovo has no busy wiring to confirm against.
-    claude|codex|copilot|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo|agy) printf 'none' ;;
+    claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo|agy) printf 'none' ;;
     *) return 1 ;;
   esac
 }

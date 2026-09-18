@@ -27,21 +27,6 @@ test_unknown_fallback() {
   pass "renderer falls back to unknown.md for unverified harness names"
 }
 
-test_copilot_background_supervision() {
-  local out ordinary
-  out=$("$RENDER" --harness copilot)
-  assert_contains "$out" "primary harness: copilot" "copilot heading missing"
-  assert_contains "$out" "Mode: Copilot attached asynchronous supervision." "copilot snippet missing"
-  assert_contains "$out" "attached asynchronous shell task" "copilot asynchronous arm missing"
-  assert_contains "$out" "agentStop" "copilot turn-end backstop missing"
-  assert_not_contains "$out" "Mode: Unknown harness fallback." "copilot fell back to unknown"
-  ordinary=$(printf '%s\n' "$out" | grep -F -- '- Ordinary wake:')
-  assert_contains "$ordinary" "Copilot attached asynchronous shell task" "copilot ordinary wake lost its re-arm"
-  out=$("$RENDER" --harness copilot --repair-line)
-  assert_contains "$out" "Copilot attached asynchronous shell task" "copilot repair line lost its arm path"
-  pass "copilot uses attached asynchronous supervision with an agentStop backstop"
-}
-
 test_conditional_stanzas() {
   local home config out
   home="$TMP_ROOT/conditional-home"
@@ -154,6 +139,18 @@ test_cross_harness_ordinary_continuation_and_repair_matrix() {
   assert_not_contains "$out" "is broken" "claude recovery line claimed failure before verification"
   assert_not_contains "$out" "bin/fm-watch-arm.sh" "claude recovery line must not create a repeatable manual arm loop"
 
+  out=$("$RENDER" --harness copilot)
+  ordinary=$(printf '%s\n' "$out" | grep -F -- '- Ordinary wake:')
+  assert_contains "$out" "primary harness: copilot" "copilot heading missing"
+  assert_contains "$out" "Mode: Copilot attached asynchronous supervision." "copilot snippet missing"
+  assert_contains "$ordinary" "Copilot attached asynchronous shell task" \
+    "copilot ordinary-wake line lost its attached task ownership"
+  assert_contains "$ordinary" "bin/fm-watch-arm.sh" "copilot ordinary-wake line lost the watcher arm command"
+  out=$("$RENDER" --harness copilot --repair-line)
+  assert_contains "$out" "Copilot attached asynchronous shell task" \
+    "copilot recovery line lost its attached task repair"
+  assert_contains "$out" "bin/fm-watch-arm.sh" "copilot recovery line lost the arm command"
+
   out=$("$RENDER" --harness grok)
   ordinary=$(printf '%s\n' "$out" | grep -F -- '- Ordinary wake:')
   assert_contains "$ordinary" "re-arm" "grok ordinary-wake line does not tell the model to re-arm"
@@ -234,7 +231,6 @@ test_pi_snippet_uses_effective_extension_path() {
 }
 
 test_selected_harness_block_only
-test_copilot_background_supervision
 test_unknown_fallback
 test_conditional_stanzas
 test_quiet_mode_stanzas

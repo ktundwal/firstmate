@@ -53,13 +53,29 @@ make_probe_tmux() {
 set -u
 case "\${1:-}" in
   display-message)
-    for a in "\$@"; do case "\$a" in *pane_current_command*) printf '%s\n' '$comm'; exit 0 ;; esac; done
+    for a in "\$@"; do
+      case "\$a" in
+        *pane_current_command*) printf '%s\n' '$comm'; exit 0 ;;
+        *pane_tty*) printf '/dev/fm-secondmate-probe\n'; exit 0 ;;
+      esac
+    done
     exit 0 ;;
   list-windows) printf '%s\n' win; exit 0 ;;
 esac
 exit 0
 SH
   chmod +x "$fakebin/tmux"
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  '-t fm-secondmate-probe -o pid=,pgid=,tpgid=,comm=')
+    printf '101 101 101 %s\n' "$FM_TEST_FOREGROUND_COMMAND"
+    ;;
+  '-p 101 -o args=') printf '%s\n' "$FM_TEST_FOREGROUND_COMMAND" ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$fakebin/ps"
   printf '%s\n' "$fakebin"
 }
 
@@ -99,7 +115,7 @@ test_tmux_agent_state_classifies() {
 
   for harness in claude codex copilot opencode grok kimi pi pi-signed pi-launcher Pi; do
     fb=$(make_probe_tmux "$TMP_ROOT/tmux-$harness" "$harness")
-    out=$(PATH="$fb:$BASE_PATH" bash -c '. "$0/bin/fm-backend.sh"; fm_backend_agent_state tmux sess:win' "$ROOT")
+    out=$(FM_TEST_FOREGROUND_COMMAND="$harness" PATH="$fb:$BASE_PATH" bash -c '. "$0/bin/fm-backend.sh"; fm_backend_agent_state tmux sess:win' "$ROOT")
     [ "$out" = alive ] || fail "a live $harness foreground process should classify as alive, got '$out'"
   done
 
@@ -165,7 +181,7 @@ test_herdr_agent_state_preserves_husk_classifier() {
   for row in 'dead missing' 'no-agent dead' 'live alive' 'unknown unreadable'; do
     pane_state=${row%% *}
     expected=${row#* }
-    out=$(FM_TEST_PANE_STATE="$pane_state" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_pane_agent_state() { printf "%s" "$FM_TEST_PANE_STATE"; }; fm_backend_herdr_agent_state "sess:p1"' "$ROOT")
+    out=$(FM_TEST_PANE_STATE="$pane_state" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_pane_agent_state() { printf "%s" "$FM_TEST_PANE_STATE"; }; fm_backend_herdr_server_running_state() { printf unreadable; }; fm_backend_herdr_agent_state "sess:p1"' "$ROOT")
     [ "$out" = "$expected" ] || fail "Herdr pane state $pane_state should map to $expected, got '$out'"
   done
 

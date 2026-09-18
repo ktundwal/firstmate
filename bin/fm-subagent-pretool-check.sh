@@ -34,14 +34,14 @@
 #   <PreToolUse JSON on stdin> | bin/fm-subagent-pretool-check.sh
 #   bin/fm-subagent-pretool-check.sh --tool '<tool-name>'
 #
-# Stdin mode extracts .toolName for Copilot and Grok, or .tool_name for Claude and Codex.
-# CLI mode is for adapters that already hold the tool name (OpenCode, Pi).
+# Stdin mode extracts .toolName for Copilot and Grok, or .tool_name for Claude
+# and Codex. CLI mode is for adapters that already hold the tool name.
 #
 # Exit/output contract (identical shape to bin/fm-cd-pretool-check.sh):
 #   ALLOW - exit 0 and no output.
 #   DENY - exit 2, a Claude-shaped deny object on stderr, and a Grok-shaped
 #          deny object on stdout unless --claude or --copilot was supplied.
-#   DENY, --copilot - exit 0 and Copilot's own decision object on stdout.
+#   DENY, --copilot - exit 0 and Copilot's decision object on stdout.
 #   INERT - not a genuine primary home (a crewmate/scout task worktree or a
 #           non-firstmate repo): exit 0 with no output, exactly like ALLOW.
 #   ESCAPE - FM_ALLOW_SUBAGENT=1 in the environment allows deliberately.
@@ -50,8 +50,8 @@
 # Claude requires stdout to remain empty on deny.
 # Codex blocks on exit 2 and displays stderr.
 # Grok consumes the stdout decision object.
-# Copilot consumes the stdout decision object.
 # OpenCode and Pi consume exit 2 plus stderr.
+# Copilot consumes the stdout decision object.
 set -u
 
 # Lowercase substrings that mark a tool name as delegation-shaped: it creates
@@ -102,9 +102,9 @@ Fires only in a genuine firstmate primary home; it is a silent no-op in a
 crewmate/scout task worktree or any non-firstmate repo, where a worker using
 delegation tools is legitimate.
 Exits 0 to allow and 2 to deny, naming the real crewmate dispatch path instead.
-With --copilot, a deny is Copilot's own decision object on stdout and exit 0.
 Set FM_ALLOW_SUBAGENT=1 in the session environment to allow deliberately.
 Malformed transport fails open.
+With --copilot, a deny is Copilot's decision object on stdout and exit 0.
 EOF
 }
 
