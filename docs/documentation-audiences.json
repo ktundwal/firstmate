@@ -189,6 +189,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/harness-adapters/references/harness/copilot.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/harness-adapters/references/harness/cursor.md",
       "audience": "agent-runtime"
     },
@@ -402,6 +406,10 @@
     },
     {
       "path": "docs/supervision-protocols/codex.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "docs/supervision-protocols/copilot.md",
       "audience": "agent-runtime"
     },
     {

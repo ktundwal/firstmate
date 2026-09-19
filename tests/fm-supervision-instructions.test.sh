@@ -139,6 +139,18 @@ test_cross_harness_ordinary_continuation_and_repair_matrix() {
   assert_not_contains "$out" "is broken" "claude recovery line claimed failure before verification"
   assert_not_contains "$out" "bin/fm-watch-arm.sh" "claude recovery line must not create a repeatable manual arm loop"
 
+  out=$("$RENDER" --harness copilot)
+  ordinary=$(printf '%s\n' "$out" | grep -F -- '- Ordinary wake:')
+  assert_contains "$out" "primary harness: copilot" "copilot heading missing"
+  assert_contains "$out" "Mode: Copilot attached asynchronous supervision." "copilot snippet missing"
+  assert_contains "$ordinary" "Copilot attached asynchronous shell task" \
+    "copilot ordinary-wake line lost its attached task ownership"
+  assert_contains "$ordinary" "bin/fm-watch-arm.sh" "copilot ordinary-wake line lost the watcher arm command"
+  out=$("$RENDER" --harness copilot --repair-line)
+  assert_contains "$out" "Copilot attached asynchronous shell task" \
+    "copilot recovery line lost its attached task repair"
+  assert_contains "$out" "bin/fm-watch-arm.sh" "copilot recovery line lost the arm command"
+
   out=$("$RENDER" --harness grok)
   ordinary=$(printf '%s\n' "$out" | grep -F -- '- Ordinary wake:')
   assert_contains "$ordinary" "re-arm" "grok ordinary-wake line does not tell the model to re-arm"

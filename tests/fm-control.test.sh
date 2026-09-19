@@ -4,8 +4,8 @@
 # These tests pin the control plane's observable behavior hermetically - a
 # stubbed session provider, no real agent - through the executable interface
 # firstmate actually calls:
-#   1. Adapter contract: every verified harness gets its own verified exit
-#      command and interrupt key, delivered as bytes to the endpoint.
+#   1. Adapter contract: every verified harness gets its verified exit command,
+#      and every interrupt-capable harness gets its verified key sequence.
 #   2. Backend capability: a backend that cannot deliver the harness's
 #      interrupt key, and a backend with no recovery-grade agent-state
 #      classifier, both refuse instead of acting blind.
@@ -35,7 +35,8 @@ mkdir -p "$TMP_ROOT"
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd)
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
-VERIFIED_HARNESSES="claude codex opencode pi pi-signed grok kimi cursor muse omp"
+VERIFIED_HARNESSES="claude codex copilot opencode pi pi-signed grok kimi cursor muse omp"
+INTERRUPT_HARNESSES="claude codex opencode pi pi-signed grok kimi cursor muse omp"
 
 # The expectation table, written out independently of the implementation so a
 # silent change to either side shows up here. The fourth field is the composer
@@ -45,6 +46,7 @@ verified_adapter_contract() {  # <harness> -> exit command, interrupt key, repea
   case "$1" in
     claude) printf '/exit\tEscape\t1\t\n' ;;
     codex) printf '/quit\tEscape\t1\t\n' ;;
+    copilot) printf '/exit\t\t\t\n' ;;
     opencode) printf '/exit\tEscape\t2\t\n' ;;
     pi) printf '/quit\tEscape\t1\t\n' ;;
     pi-signed) printf '/quit\tEscape\t1\t\n' ;;
@@ -122,6 +124,7 @@ case "${1:-}" in
         *cursor_y*) printf '1\n'; exit 0 ;;
         *pane_current_command*) cat "$D/command"; printf '\n'; exit 0 ;;
         *pane_current_path*) cat "$D/cwd"; printf '\n'; exit 0 ;;
+        *pane_tty*) printf '/dev/fm-control\n'; exit 0 ;;
       esac
     done
     printf 'fakepane\n'; exit 0 ;;
@@ -135,6 +138,18 @@ esac
 exit 0
 SH
   chmod +x "$fb/tmux"
+  cat > "$fb/ps" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  '-t fm-control -o pid=,pgid=,tpgid=,comm=')
+    command=$(cat "$FM_FAKE_DIR/command")
+    printf '101 101 101 %s\n' "$command"
+    ;;
+  '-p 101 -o args=') cat "$FM_FAKE_DIR/command"; printf '\n' ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$fb/ps"
   cat > "$fb/sleep" <<'SH'
 #!/usr/bin/env bash
 if [ -n "${FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK:-}" ] \
@@ -239,7 +254,7 @@ test_exit_types_each_harness_verified_command() {
 
 test_interrupt_sends_each_harness_verified_key() {
   local dir out rc harness expected key repeat clear got want
-  for harness in $VERIFIED_HARNESSES; do
+  for harness in $INTERRUPT_HARNESSES; do
     dir=$(new_case "int-$harness")
     add_task "$dir" t1 "$harness"
     if [ "$harness" = cursor ]; then
@@ -258,14 +273,28 @@ test_interrupt_sends_each_harness_verified_key() {
     [ -z "$(literals "$dir")" ] \
       || fail "interrupt on $harness must type no text, got: $(literals "$dir")"
   done
-  pass "fm-control interrupt: every verified harness gets its own verified key and repeat count"
+  pass "fm-control interrupt: every interrupt-capable harness gets its verified key and repeat count"
 }
+test_copilot_interrupt_is_explicitly_refused() {
+  local dir out rc
+  dir=$(new_case copilot-interrupt-refused)
+  add_task "$dir" t1 copilot
+  alive_as "$dir" copilot
+  out=$(run_control "$dir" t1 interrupt); rc=$?
+  expect_code 1 "$rc" "Copilot interrupt should refuse without semantic acknowledgement"
+  assert_contains "$out" "no verified interrupt sequence with a semantic cancellation acknowledgement" \
+    "Copilot interrupt refusal should name the missing proof"
+  [ -z "$(keys_sent "$dir")" ] || fail "refused Copilot interrupt sent a key"
+  pass "fm-control interrupt: Copilot refuses instead of recording unacknowledged cancellation"
+}
+
 
 # A recorded harness can carry a raw launch command's basename, so the tables
 # are reached through one prefix rule rather than an exact string match.
 test_harness_family_resolution() {
   local pair recorded want got
   for pair in claude:claude claude-latest:claude codex:codex codex-cli:codex \
+      copilot:copilot copilot-cli:copilot \
       opencode:opencode grok:grok grok-2:grok kimi:kimi cursor:cursor \
       cursor-agent:cursor muse:muse muse-bin-0.1.0:muse pi:pi \
       pi-signed:pi-signed omp:omp; do
@@ -381,7 +410,7 @@ test_harness_kind_capability() {
   done
   fm_control_harness_supports_kind muse secondmate \
     && fail "muse has no primary supervision protocol and must not claim a secondmate"
-  for harness in claude codex opencode pi pi-signed grok kimi omp; do
+  for harness in claude codex copilot opencode pi pi-signed grok kimi omp; do
     fm_control_harness_supports_kind "$harness" secondmate \
       || fail "$harness should be able to run a secondmate"
   done
@@ -686,6 +715,39 @@ test_busy_agent_is_interrupted_before_the_exit_command() {
   pass "fm-control exit: a busy agent receives interrupt delivery before the exit command"
 }
 
+test_busy_copilot_exit_is_refused_without_input() {
+  local dir out rc gen before
+  dir=$(new_case copilot-busy-exit)
+  add_task "$dir" t1 copilot
+  alive_as "$dir" copilot
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+  before=$(cat "$dir/home/state/t1.busy-state")
+  out=$(run_control "$dir" t1 exit); rc=$?
+  expect_code 1 "$rc" "busy Copilot exit should refuse without a verified cancellation path"
+  assert_contains "$out" "no verified interrupt sequence with a semantic cancellation acknowledgement" \
+    "busy Copilot exit refusal should name the missing acknowledgement"
+  [ -z "$(keys_sent "$dir")" ] || fail "busy Copilot exit sent an interrupt key"
+  [ -z "$(literals "$dir")" ] || fail "busy Copilot exit sent /exit after refusing interruption"
+  [ "$(cat "$dir/home/state/t1.busy-state")" = "$before" ] \
+    || fail "busy Copilot exit changed semantic state without acknowledgement"
+  pass "fm-control exit: busy Copilot refuses without sending input or changing state"
+}
+
+test_idle_copilot_exit_uses_slash_exit() {
+  local dir out rc gen
+  dir=$(new_case copilot-idle-exit)
+  add_task "$dir" t1 copilot
+  alive_as "$dir" copilot
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1 --state idle --source fm-spawn --event seed)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+  out=$(run_control "$dir" t1 exit); rc=$?
+  expect_code 0 "$rc" "idle Copilot exit should succeed"$'\n'"$out"
+  [ -z "$(keys_sent "$dir")" ] || fail "idle Copilot exit sent an interrupt key"
+  [ "$(literals "$dir")" = /exit ] || fail "idle Copilot exit did not send /exit"
+  pass "fm-control exit: idle Copilot exits without an interrupt"
+}
+
 test_idle_agent_is_not_interrupted() {
   local dir out rc gen
   dir=$(new_case idle)
@@ -881,6 +943,7 @@ test_fm_send_still_marks_the_same_secondmate_task() {
 
 test_exit_types_each_harness_verified_command
 test_interrupt_sends_each_harness_verified_key
+test_copilot_interrupt_is_explicitly_refused
 test_opencode_interrupts_twice_and_others_once
 test_unverified_harness_is_refused
 test_harness_family_resolution
@@ -904,7 +967,9 @@ test_missing_endpoint_refuses
 test_interrupt_refuses_when_no_agent_runs
 test_ambiguous_endpoint_refuses
 test_busy_agent_is_interrupted_before_the_exit_command
+test_busy_copilot_exit_is_refused_without_input
 test_idle_agent_is_not_interrupted
+test_idle_copilot_exit_uses_slash_exit
 test_interrupt_without_acknowledgement_preserves_busy_state
 test_muse_interrupt_confirms_adapter_acknowledgement
 test_interrupt_revalidates_agent_after_acknowledgement_wait

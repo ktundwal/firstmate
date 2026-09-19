@@ -62,7 +62,7 @@ fm_control_verb_allowed() {  # <verb>
 # section 4's verified-adapter list; an unverified adapter is refused rather
 # than guessed at, exactly as a spawn on it would be.
 fm_control_harnesses() {
-  printf '%s\n' claude codex opencode pi pi-signed grok kimi cursor gemini muse rovo omp agy
+  printf '%s\n' claude codex copilot opencode pi pi-signed grok kimi cursor gemini muse rovo omp agy
 }
 
 fm_control_harness_supported() {  # <harness>
@@ -88,6 +88,7 @@ fm_control_harness_family() {  # <recorded-harness>
     pi-signed) printf 'pi-signed' ;;
     omp) printf 'omp' ;;
     agy) printf 'agy' ;;
+    copilot*) printf 'copilot' ;;
     claude*) printf 'claude' ;;
     codex*) printf 'codex' ;;
     opencode*) printf 'opencode' ;;
@@ -126,6 +127,10 @@ fm_control_harness_supports_kind() {  # <harness> <kind>
 # Herdr). omp (Oh My Pi) shares Pi's single Escape, empty composer
 # afterwards, and /quit exit (verified omp 18.1.2 in a PTY, re-verified 18.1.11
 # through Herdr).
+# Copilot is deliberately absent: current Copilot CLI cancels a running tool on
+# Ctrl+C but emits no worker hook that can acknowledge cancellation and settle
+# the semantic busy record. Refuse interrupt rather than report key delivery as
+# completed lifecycle control.
 fm_control_interrupt_key() {  # <harness>
   case "${1-}" in
     claude|codex|opencode|pi|pi-signed|omp|kimi|cursor|gemini|muse|rovo|agy) printf 'Escape' ;;
@@ -183,7 +188,7 @@ fm_control_interrupt_ack_source() {  # <harness>
 # The command that exits the agent from its own composer.
 fm_control_exit_command() {  # <harness>
   case "${1-}" in
-    claude|opencode|grok|kimi|cursor|muse|rovo) printf '/exit' ;;
+    claude|copilot|opencode|grok|kimi|cursor|muse|rovo) printf '/exit' ;;
     codex|pi|pi-signed|omp|gemini|agy) printf '/quit' ;;
     *) return 1 ;;
   esac
@@ -224,11 +229,27 @@ fm_control_backend_state_verified() {  # <backend>
 # pointing at a retired generation. Prints zero or more absolute paths, one per
 # line: worktree-resident hook files and firstmate-owned state tokens only,
 # never a harness's own managed config.
+fm_control_copilot_hook_path() {  # <worktree> <id>
+  local wt=${1-} id=${2-}
+  [ -n "$wt" ] && [ -n "$id" ] || return 1
+  printf '%s\n' "$wt/.github/hooks/fm-busy-state-$id.json"
+}
+
+fm_control_copilot_session_path() {  # <state-dir> <id>
+  local state=${1-} id=${2-}
+  [ -n "$state" ] && [ -n "$id" ] || return 1
+  printf '%s\n' "$state/$id.copilot-session"
+}
+
 fm_control_harness_wiring_paths() {  # <harness> <worktree> <state-dir> <id>
   local harness=${1-} wt=${2-} state=${3-} id=${4-}
   [ -n "$wt" ] && [ -n "$state" ] && [ -n "$id" ] || return 1
   case "$harness" in
     claude) printf '%s\n' "$wt/.claude/settings.local.json" ;;
+    copilot)
+      fm_control_copilot_hook_path "$wt" "$id"
+      fm_control_copilot_session_path "$state" "$id"
+      ;;
     opencode) printf '%s\n' "$wt/.opencode/plugins/fm-busy-state.js" ;;
     pi|pi-signed) printf '%s\n' "$state/$id.pi-ext.ts" ;;
     omp) printf '%s\n' "$state/$id.omp-ext.ts" ;;

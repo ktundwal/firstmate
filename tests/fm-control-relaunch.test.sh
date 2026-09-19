@@ -101,6 +101,7 @@ case "${1:-}" in
       case "$a" in
         *cursor_y*) printf '1\n'; exit 0 ;;
         *pane_current_command*) cat "$D/command"; printf '\n'; exit 0 ;;
+        *pane_tty*) printf '/dev/fm-control-relaunch\n'; exit 0 ;;
         *pane_current_path*)
           if [ -n "${FM_FAKE_CWD_RACE_READY:-}" ]; then
             : > "$FM_FAKE_CWD_RACE_READY"
@@ -123,6 +124,18 @@ esac
 exit 0
 SH
   chmod +x "$fb/tmux"
+  cat > "$fb/ps" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  '-t fm-control-relaunch -o pid=,pgid=,tpgid=,comm=')
+    command=$(cat "$FM_FAKE_DIR/command")
+    printf '101 101 101 %s\n' "$command"
+    ;;
+  '-p 101 -o args=') cat "$FM_FAKE_DIR/command"; printf '\n' ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$fb/ps"
   cat > "$fb/sleep" <<'SH'
 #!/usr/bin/env bash
 [ -z "${FM_FAKE_LOCK_WAITING:-}" ] || : > "$FM_FAKE_LOCK_WAITING"
@@ -330,6 +343,27 @@ test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint() {
   assert_grep "/exit" "$dir/fake/literal" "the previous agent should have been exited"
   assert_grep "encode launch-brief" "$dir/fake/literal" "the replacement should have been launched"
   pass "fm-control relaunch: a same-harness relaunch replaces the agent in the same endpoint and worktree"
+}
+
+test_busy_copilot_relaunch_refuses_without_input() {
+  local dir out rc gen before_meta before_busy
+  dir=$(new_case copilot-busy-relaunch rl45)
+  add_ship_task "$dir" rl45 copilot
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" rl45)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/rl45.meta"
+  before_meta=$(cat "$dir/home/state/rl45.meta")
+  before_busy=$(cat "$dir/home/state/rl45.busy-state")
+  out=$(run_control "$dir" rl45 relaunch --note "preserve the active turn"); rc=$?
+  expect_code 1 "$rc" "busy Copilot relaunch should refuse without a verified cancellation path"
+  assert_contains "$out" "no verified interrupt sequence with a semantic cancellation acknowledgement" \
+    "busy Copilot relaunch refusal should name the missing acknowledgement"
+  [ ! -s "$dir/fake/keys" ] || fail "busy Copilot relaunch sent an interrupt key"
+  [ ! -s "$dir/fake/literal" ] || fail "busy Copilot relaunch sent lifecycle input"
+  [ "$(cat "$dir/home/state/rl45.meta")" = "$before_meta" ] \
+    || fail "busy Copilot relaunch changed task metadata"
+  [ "$(cat "$dir/home/state/rl45.busy-state")" = "$before_busy" ] \
+    || fail "busy Copilot relaunch changed semantic state"
+  pass "fm-control relaunch: busy Copilot refuses without input or durable changes"
 }
 
 test_relaunch_refuses_before_exit_when_the_composer_holds_pending_text() {
@@ -588,6 +622,23 @@ test_harness_switch_moves_the_record_and_clears_prior_wiring() {
   [ "$(journal_field "$dir" rl4 from_harness)" = claude ] || fail "the journal should record the origin harness"
   [ "$(journal_field "$dir" rl4 to_harness)" = codex ] || fail "the journal should record the target harness"
   pass "fm-control relaunch: switching harness is one ordinary relaunch, and the old wiring goes with the old agent"
+}
+
+test_copilot_harness_switch_retires_task_specific_hook() {
+  local dir out rc
+  dir=$(new_case copilotwiring rl36)
+  add_ship_task "$dir" rl36 copilot
+  mkdir -p "$dir/wt/.github/hooks"
+  printf '{"hooks":{}}\n' > "$dir/wt/.github/hooks/fm-busy-state-rl36.json"
+  printf 'gen=busy-gen\nsession=parent\n' > "$dir/home/state/rl36.copilot-session"
+  printf 'claude' > "$dir/fake/becomes"
+  out=$(run_control "$dir" rl36 relaunch --harness claude --note "switching runtime"); rc=$?
+  expect_code 0 "$rc" "a Copilot harness switch should succeed"$'\n'"$out"
+  [ ! -e "$dir/wt/.github/hooks/fm-busy-state-rl36.json" ] \
+    || fail "the previous Copilot task hook must be cleared on a switch"
+  [ ! -e "$dir/home/state/rl36.copilot-session" ] \
+    || fail "the previous Copilot session binding must be cleared on a switch"
+  pass "fm-control relaunch: a harness switch retires the prior Copilot hook and session binding"
 }
 
 test_harness_switch_does_not_carry_the_old_profile_axes() {
@@ -1190,7 +1241,7 @@ test_prepublication_failure_keeps_concurrent_durable_metadata() {
     run_control "$dir" rl30 relaunch --harness codex --note "preserve concurrent metadata" \
       > "$dir/control.out" &
   control_pid=$!
-  while [ ! -e "$dir/cwd-race-ready" ] && [ "$i" -lt 200 ]; do
+  while [ ! -e "$dir/cwd-race-ready" ] && [ "$i" -lt 1200 ]; do
     /bin/sleep 0.01
     i=$((i + 1))
   done
@@ -1682,6 +1733,7 @@ test_relaunch_moves_a_drifted_item_back_in_flight() {
 }
 
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
+test_busy_copilot_relaunch_refuses_without_input
 test_relaunch_refuses_before_exit_when_the_composer_holds_pending_text
 test_relaunch_refuses_before_exit_when_the_composer_state_is_unproven
 test_relaunch_from_linked_home_preserves_recorded_worktree
@@ -1691,6 +1743,7 @@ test_disabled_relaunch_clears_prior_trace_context
 test_relaunch_appends_the_progress_note_to_the_instructions
 test_relaunch_requires_a_note_for_a_ship_task
 test_harness_switch_moves_the_record_and_clears_prior_wiring
+test_copilot_harness_switch_retires_task_specific_hook
 test_harness_switch_does_not_carry_the_old_profile_axes
 test_harness_switch_resolves_a_prefixed_recorded_harness
 test_prefixed_recorded_harness_requires_explicit_replacement

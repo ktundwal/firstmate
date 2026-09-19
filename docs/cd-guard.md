@@ -76,6 +76,7 @@ It does not permit `cd /home/project`, because an absolute-path `cd` remains a p
 
 `bin/fm-cd-pretool-check.sh` supports every harness-engine entry shape used by the tracked adapters, with pi-signed sharing Pi's shape:
 
+- Copilot sends stdin JSON at `.toolArgs.command` and adds `--copilot`, which returns Copilot's native deny object on stdout with exit 0.
 - Claude sends stdin JSON at `.tool_input.command` and adds `--claude` to preserve Claude's stderr-only deny requirement.
 - Codex sends stdin JSON at `.tool_input.command` without `--claude`.
 - Grok sends stdin JSON at `.toolInput.command`.
@@ -114,6 +115,7 @@ The cd-guard never duplicates shell lexing; it adds only the cd-specific decisio
 | Harness | Entry | Adapter behavior on checker exit 2 |
 | --- | --- | --- |
 | Claude | `.claude/settings.json` PreToolUse Bash hook forwarding stdin with `--claude` | Blocks the tool call; stderr deny object, stdout empty. |
+| Copilot | `.github/hooks/fm-primary.json` PreToolUse hook forwarding stdin with `--copilot` | Returns Copilot's native deny object and blocks the command. |
 | Codex | `.codex/hooks.json` PreToolUse hook that anchors from `pwd -P`, verifies the hook-loaded firstmate root, and forwards the payload | Blocks on exit 2 and displays stderr. |
 | Grok | `.grok/hooks/fm-primary-cd-check.json` PreToolUse hook anchored on `${GROK_WORKSPACE_ROOT:-}` | Consumes the stdout `decision=deny` object. |
 | OpenCode | `.opencode/plugins/fm-primary-cd-check.js` `tool.execute.before` | Throws, which surfaces as the failed tool result. |

@@ -187,16 +187,14 @@ install_guard_scripts() {
   cp "$ROOT/bin/fm-turnend-guard-grok.sh" "$dir/bin/fm-turnend-guard-grok.sh"
   cp "$ROOT/bin/fm-operational-input.sh" "$dir/bin/fm-operational-input.sh"
   cp "$ROOT/bin/fm-supervision-instructions.sh" "$dir/bin/fm-supervision-instructions.sh"
-  cp "$ROOT/bin/fm-harness.sh" "$dir/bin/fm-harness.sh"
-  cp "$ROOT/bin/fm-primary-scope-lib.sh" "$dir/bin/fm-primary-scope-lib.sh"
-  cp "$ROOT/bin/fm-supervision-lib.sh" "$dir/bin/fm-supervision-lib.sh"
-  cp "$ROOT/bin/fm-wake-lib.sh" "$dir/bin/fm-wake-lib.sh"
-  cp "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/fm-hook-host-lib.sh"
-  cp "$ROOT/bin/fm-session-lock-lib.sh" "$dir/bin/fm-session-lock-lib.sh"
-  cp "$ROOT/bin/fm-cursor-lib.sh" "$dir/bin/fm-cursor-lib.sh"
+  cp "$ROOT/bin/fm-harness.sh" "$ROOT/bin/fm-harness-process-lib.sh" \
+    "$ROOT/bin/fm-session-lock-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" \
+    "$ROOT/bin/fm-primary-scope-lib.sh" "$ROOT/bin/fm-supervision-lib.sh" \
+    "$ROOT/bin/fm-wake-lib.sh" "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/"
   mkdir -p "$dir/docs"
   cp -R "$ROOT/docs/supervision-protocols" "$dir/docs/supervision-protocols"
   chmod +x "$dir/bin/fm-turnend-guard.sh" "$dir/bin/fm-turnend-guard-grok.sh" "$dir/bin/fm-operational-input.sh" "$dir/bin/fm-supervision-instructions.sh" "$dir/bin/fm-harness.sh"
+  ln -sf /bin/bash "$dir/claude"
 }
 
 mark_codex_hook_root() {
@@ -367,7 +365,7 @@ test_hook_non_claude_health_ignores_claude_budget_contention() {
   dir=$(make_primary_dir "$TMP_ROOT/hook-non-claude-budget-contention")
   home=$(cd "$dir" && pwd)
   : > "$dir/state/task1.meta"
-  sleep 60 &
+  sleep 300 &
   pid=$!
   identity=$(watcher_identity "$dir" "$pid") || {
     kill "$pid" 2>/dev/null || true
@@ -379,12 +377,12 @@ test_hook_non_claude_health_ignores_claude_budget_contention() {
   printf 'session=claude-episode\ncount=3\nepoch=9\n' > "$dir/state/.turnend-claude-blocks"
   printf 'notice-state\n' > "$dir/state/.claude-autoarm-failure-notified"
   printf 'alarm-state\n' > "$dir/state/.claude-autoarm-failure-alarmed"
-  sleep 60 &
+  sleep 300 &
   holder=$!
   mkdir -p "$dir/state/.turnend-claude-blocks.lock"
   printf '%s\n' "$holder" > "$dir/state/.turnend-claude-blocks.lock/pid"
   while IFS='|' read -r harness payload; do
-    out=$(printf '%s' "$payload" | FM_HOME="$home" bash "$dir/bin/fm-turnend-guard.sh" 2>&1); status=$?
+    out=$(printf '%s' "$payload" | PATH="$BLIND_BIN:$PATH" FM_HOME="$home" bash "$dir/bin/fm-turnend-guard.sh" 2>&1); status=$?
     expect_code 0 "$status" "$harness healthy path must ignore Claude budget-lock contention"
     [ -z "$out" ] || fail "$harness healthy path produced output: $out"
     [ "$(cat "$dir/state/.turnend-claude-blocks")" = $'session=claude-episode\ncount=3\nepoch=9' ] \
@@ -494,7 +492,7 @@ test_hook_ignores_repo_state_when_fm_home_set() {
   home="$TMP_ROOT/hook-fm-home-quiet"
   mkdir -p "$home/state"
   : > "$dir/state/task1.meta"
-  out=$(printf '{"stop_hook_active":false}' | FM_HOME="$home" bash "$dir/bin/fm-turnend-guard.sh" 2>&1); status=$?
+  out=$(printf '{"stop_hook_active":false}' | PATH="$BLIND_BIN:$PATH" FM_HOME="$home" bash "$dir/bin/fm-turnend-guard.sh" 2>&1); status=$?
   expect_code 0 "$status" "hook must ignore repo-root state when FM_HOME selects another state dir"
   [ -z "$out" ] || fail "hook produced output from stale repo-root state despite FM_HOME: $out"
   pass "fm-turnend-guard: ignores stale repo-root state when FM_HOME is set"
@@ -715,14 +713,16 @@ test_hook_silent_without_stdin() {
 }
 
 test_hook_runs_fast() {
-  local dir start elapsed_s
+  local dir start elapsed_s home
   dir=$(make_primary_dir "$TMP_ROOT/hook-timing")
+  home=$(cd "$dir" && pwd)
   : > "$dir/state/task1.meta"
   start=$SECONDS
-  run_hook "$dir" false >/dev/null
+  printf '{"stop_hook_active":false}' | PATH="$BLIND_BIN:$PATH" FM_HOME="$home" \
+    bash "$dir/bin/fm-turnend-guard.sh" --copilot >/dev/null 2>&1
   elapsed_s=$((SECONDS - start))
-  [ "$elapsed_s" -lt 3 ] || fail "hook took ${elapsed_s}s, expected well under a second (generous 3s CI margin)"
-  pass "fm-turnend-guard: runs well under the generous timing margin (${elapsed_s}s)"
+  [ "$elapsed_s" -lt 3 ] || fail "Copilot hook took ${elapsed_s}s, expected well under a second (generous 3s CI margin)"
+  pass "fm-turnend-guard: Copilot path runs well under the generous timing margin (${elapsed_s}s)"
 }
 
 test_grok_adapter_forces_one_resume_when_unhealthy() {
@@ -888,7 +888,11 @@ test_tracked_claude_entries_inert_under_grok() {
   local dir cmd script target guarded=0 unguarded=0
   command -v jq >/dev/null 2>&1 || fail "test host must provide jq"
   dir="$TMP_ROOT/claude-entries-grok-inert"
-  mkdir -p "$dir/bin"
+  mkdir -p "$dir/bin" "$dir/.claude"
+  printf '# fixture\n' > "$dir/AGENTS.md"
+  cp "$ROOT/.claude/settings.json" "$dir/.claude/settings.json"
+  cp "$ROOT/bin/fm-claude-compat-hook.sh" "$ROOT/bin/fm-hook-host-lib.sh" \
+    "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" "$dir/bin/"
   for script in fm-turnend-guard.sh fm-claude-stop-autoarm.sh fm-sessionstart-run.sh \
     fm-arm-pretool-check.sh fm-cd-pretool-check.sh fm-subagent-pretool-check.sh; do
     printf '#!/usr/bin/env bash\nprintf ran >> %q\n' "$dir/invoked" > "$dir/bin/$script"
@@ -898,14 +902,21 @@ test_tracked_claude_entries_inert_under_grok() {
   # Runs one tracked command string and reports whether it reached its script.
   ran_under() {
     rm -f "$dir/invoked"
-    env "$@" CLAUDE_PROJECT_DIR="$dir" bash -c "$cmd" </dev/null >/dev/null 2>&1
+    ( cd "$dir" && env "$@" CLAUDE_PROJECT_DIR="$dir" bash -c "$cmd" ) </dev/null >/dev/null 2>&1
     [ -e "$dir/invoked" ]
   }
 
   while IFS= read -r cmd; do
     [ -n "$cmd" ] || continue
-    target=$(printf '%s\n' "$cmd" | sed -n 's|.*/bin/\([a-z0-9-]*\.sh\).*|\1|p')
-    [ -n "$target" ] || fail "could not identify the target script of tracked entry: $cmd"
+    case "$cmd" in
+      *fm-subagent-pretool-check.sh*) target=fm-subagent-pretool-check.sh ;;
+      *fm-turnend-guard.sh*) target=fm-turnend-guard.sh ;;
+      *fm-claude-stop-autoarm.sh*) target=fm-claude-stop-autoarm.sh ;;
+      *fm-sessionstart-run.sh*) target=fm-sessionstart-run.sh ;;
+      *fm-arm-pretool-check.sh*) target=fm-arm-pretool-check.sh ;;
+      *fm-cd-pretool-check.sh*) target=fm-cd-pretool-check.sh ;;
+      *) fail "could not identify the target script of tracked entry: $cmd" ;;
+    esac
 
     # Native Claude: EVERY tracked entry must still reach its script, or a guard
     # has silently disarmed Claude's own protection.
@@ -1183,7 +1194,7 @@ EOF
 run_hook_claude() {
   local dir=$1 stop_active=$2 home
   home=$(cd "$dir" && pwd)
-  printf '{"stop_hook_active":%s,"session_id":"sess-claude-mode"}' "$stop_active" | CLAUDECODE=1 FM_HOME="$home" bash "$dir/bin/fm-turnend-guard.sh" --claude 2>&1
+  printf '{"stop_hook_active":%s,"session_id":"sess-claude-mode"}' "$stop_active" | CLAUDECODE=1 FM_HOME="$home" "$dir/claude" "$dir/bin/fm-turnend-guard.sh" --claude 2>&1
 }
 
 seed_claude_failure() {
@@ -1212,6 +1223,7 @@ install_integrated_autoarm() {
   cp "$ROOT/bin/fm-supervision-lib.sh" "$dir/bin/fm-supervision-lib.sh"
   cp "$ROOT/bin/fm-wake-lib.sh" "$dir/bin/fm-wake-lib.sh"
   cp "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/fm-hook-host-lib.sh"
+  cp "$ROOT/bin/fm-harness-process-lib.sh" "$dir/bin/fm-harness-process-lib.sh"
   cp "$ROOT/bin/fm-session-lock-lib.sh" "$dir/bin/fm-session-lock-lib.sh"
   cp "$ROOT/bin/fm-cursor-lib.sh" "$dir/bin/fm-cursor-lib.sh"
   cp "$ROOT/bin/fm-lock.sh" "$dir/bin/fm-lock.sh"
@@ -1371,7 +1383,7 @@ SH
         FM_TERMINAL_READY="$ready" \
         FM_TERMINAL_RELEASE="$release" \
         FM_TERMINAL_ONCE="$once" \
-        CLAUDECODE=1 FM_HOME="$dir" bash "$dir/bin/fm-turnend-guard.sh" --claude \
+        CLAUDECODE=1 FM_HOME="$dir" "$dir/claude" "$dir/bin/fm-turnend-guard.sh" --claude \
           > "$guard_out" 2>&1
     printf '%s\n' "$?" > "$guard_status"
   ) &
@@ -1636,13 +1648,25 @@ test_hook_claude_mode_integrated_monotonic_fail_open() {
 }
 
 # The auto-arm's ledger epoch advances only when the hook reaches its
-# generation claim. An unowned hook with no session lock stays inert, so the
+# generation claim. A live harness-named process outside the hook's ancestry
+# holding state/.lock keeps the hook inert by its identity contract, so the
 # ledger stays at the exhausted-failure epoch the hook wrote before it went
 # quiet. The block budget used to advance only on an epoch change, so this
 # shape re-blocked without limit and the attended fail-open never fired: the
 # budget must count consecutive re-blocks against an unchanged epoch instead.
+hold_session_lock_from_foreign_harness() {  # sets FOREIGN_LOCK_HOLDER
+  local dir=$1
+  # `bash -c` execs a single command in place, which would rename the process
+  # to sleep; the trailing no-op keeps the harness-named shell as the holder.
+  # Started in this shell, not a command substitution, so the caller can reap
+  # it and no inherited pipe keeps a substitution waiting on the sleeper.
+  "$dir/fake-claude" -c 'sleep 60; true' >/dev/null 2>&1 &
+  FOREIGN_LOCK_HOLDER=$!
+  printf '%s\n' "$FOREIGN_LOCK_HOLDER" > "$dir/state/.lock"
+}
+
 test_hook_claude_mode_frozen_epoch_reaches_bounded_fail_open() {
-  local dir out status guard_out guard_status i pid identity count epoch_line
+  local dir out status guard_out guard_status holder i pid identity count epoch_line
   dir=$(make_primary_dir "$TMP_ROOT/hook-claude-frozen-epoch")
   : > "$dir/state/task1.meta"
   install_integrated_autoarm "$dir"
@@ -1654,9 +1678,8 @@ test_hook_claude_mode_frozen_epoch_reaches_bounded_fail_open() {
   expect_code 0 "$guard_status" "the first failed epoch must own its Stop handoff"
   epoch_line=$(sed -n '1p' "$dir/state/.claude-autoarm-epoch")
 
-  # Remove the dead lock left by the fixture arm so this case isolates the
-  # frozen-ledger accounting path rather than the live foreign-owner escape.
-  rm -f "$dir/state/.lock"
+  hold_session_lock_from_foreign_harness "$dir"
+  holder=$FOREIGN_LOCK_HOLDER
   for i in 1 2 3 4; do
     out=$(run_integrated_autoarm_unowned "$dir"); status=$?
     expect_code 0 "$status" "an auto-arm outside the lock owner's ancestry must stay inert at stop $i"
@@ -1687,6 +1710,8 @@ test_hook_claude_mode_frozen_epoch_reaches_bounded_fail_open() {
   identity=$(watcher_identity "$dir" "$pid") || {
     kill "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
+    kill "$holder" 2>/dev/null || true
+    wait "$holder" 2>/dev/null || true
     fail "could not identify the frozen-epoch recovery watcher"
   }
   record_watcher_lock "$dir" "$pid" "$identity"
@@ -1694,6 +1719,8 @@ test_hook_claude_mode_frozen_epoch_reaches_bounded_fail_open() {
   guard_out=$(run_hook_claude "$dir" true); guard_status=$?
   kill "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true
+  kill "$holder" 2>/dev/null || true
+  wait "$holder" 2>/dev/null || true
   rm -rf "$dir/state/.watch.lock"
   expect_code 0 "$guard_status" "a healthy watcher must still allow the stop after a frozen-epoch alarm"
   [ -z "$guard_out" ] || fail "healthy allow after the frozen-epoch alarm produced output: $guard_out"

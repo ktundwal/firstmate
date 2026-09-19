@@ -3,7 +3,7 @@
 # Behavior tests for the watcher-arm PreToolUse seatbelt (docs/arm-pretool-check.md).
 #
 # bin/fm-arm-command-policy.mjs is the single owner of command classification.
-# This suite drives the stable shell transport through all five harness entry
+# This suite drives the stable shell transport through all six harness entry
 # forms and asserts the per-harness wiring contract without spawning a harness.
 # Empirical harness evidence lives in docs/arm-pretool-check.md.
 set -u
@@ -143,6 +143,10 @@ matrix_case E17 allow 'for f in 1; do echo fm-watch; done'
 
 MATRIX_TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-arm-policy-matrix.XXXXXX")
 FM_TEST_CLEANUP_DIRS+=("$MATRIX_TMP")
+HOST_BIN=$(fm_fakebin "$MATRIX_TMP/hook-host")
+fm_fake_blind_ancestry "$HOST_BIN"
+PATH="$HOST_BIN:$PATH"
+export PATH
 trap fm_test_cleanup EXIT
 
 run_matrix_entry() {
@@ -159,6 +163,11 @@ run_matrix_entry() {
     claude)
       payload=$(jq -cn --arg command "$cmd" '{tool_name:"Bash",tool_input:{command:$command}}')
       printf '%s' "$payload" | "$CHECK" --claude >"$out_file" 2>"$err_file"
+      rc=$?
+      ;;
+    copilot)
+      payload=$(jq -cn --arg command "$cmd" '{toolName:"bash",toolArgs:{command:$command}}')
+      printf '%s' "$payload" | "$CHECK" --copilot >"$out_file" 2>"$err_file"
       rc=$?
       ;;
     grok)
@@ -181,6 +190,13 @@ run_matrix_entry() {
     [ ! -s "$err_file" ] || fail "$id via $entry allow must leave stderr empty: $(cat "$err_file")"
     return
   fi
+  if [ "$entry" = copilot ]; then
+    expect_code 0 "$rc" "$id via copilot must return its native decision object"
+    jq -e '.permissionDecision == "deny" and (.permissionDecisionReason | test("\\[(watcher-(background|pipeline|redirection|bundled|nested|direct)|broad-watcher-kill|unclassifiable-protected-command)\\]"))' "$out_file" >/dev/null 2>&1 \
+      || fail "$id via copilot deny must carry a stable reason code: $(cat "$out_file")"
+    [ ! -s "$err_file" ] || fail "$id via copilot deny must leave stderr empty: $(cat "$err_file")"
+    return
+  fi
 
   [ "$rc" -eq 2 ] || fail "$id via $entry must deny, got exit $rc"
   jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.systemMessage | test("\\[(watcher-(background|pipeline|redirection|bundled|nested|direct)|broad-watcher-kill|unclassifiable-protected-command)\\]"))' "$err_file" >/dev/null 2>&1 \
@@ -196,10 +212,10 @@ run_matrix_entry() {
 test_full_acceptance_matrix() {
   local i entry
   for ((i = 0; i < ${#MATRIX_IDS[@]}; i++)); do
-    for entry in codex claude grok opencode pi; do
+    for entry in codex claude copilot grok opencode pi; do
       run_matrix_entry "${MATRIX_IDS[$i]}" "${MATRIX_EXPECTED[$i]}" "$entry" "${MATRIX_COMMANDS[$i]}"
     done
-    pass "matrix ${MATRIX_IDS[$i]}: ${MATRIX_EXPECTED[$i]} through all five entry forms"
+    pass "matrix ${MATRIX_IDS[$i]}: ${MATRIX_EXPECTED[$i]} through all six entry forms"
   done
 }
 

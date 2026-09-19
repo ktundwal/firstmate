@@ -45,6 +45,11 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-guard.sh`            | Warn on primary-checkout tangles, main-session pending wakes, and unhealthy supervision |
 | `fm-primary-scope-lib.sh` | Shared marker-or-plain-checkout primary-home predicate for tracked hooks             |
 | `fm-session-lock-lib.sh` | Shared session-lock ownership from harness ancestry or a trusted Claude session id for fm-lock.sh and the Claude Stop auto-arm |
+| `fm-harness-process-lib.sh` | Shared harness process-identity owner for detection, hook-host attribution, liveness, composer identity, and session locks |
+| `fm-copilot-hook.sh` | Copilot primary repository-hook translator for session start, command guards, turn end, and watcher completion |
+| `fm-copilot-worker-hook.sh` | Task-scoped Copilot semantic busy and normal-completion hook adapter |
+| `fm-copilot-watcher-receipt-lib.sh` | Single-use root/home-bound receipt for Copilot watcher completion notifications |
+| `fm-claude-compat-hook.sh` | Root-validated stand-down wrapper for Claude-shaped hooks also loaded by Copilot |
 | `fm-claude-stop-autoarm.sh` | Claude Stop `asyncRewake` hook owning tokenless watcher continuity with single-flight exit-2 rewake (docs/watcher-continuity.md) |
 | `fm-turnend-guard.sh`    | Shared primary turn-end guard predicate so no turn ends blind (docs/turnend-guard.md) |
 | `fm-turnend-guard-grok.sh` | Grok Stop-hook adapter for the primary turn-end guard                              |

@@ -358,9 +358,12 @@ require_state_verified_backend() {  # <verb>
 # composer would make the next submitted line concatenate onto it.
 send_interrupt_keys() {
   local key repeat clear i=0
-  key=$(fm_control_interrupt_key "$HARNESS")
-  repeat=$(fm_control_interrupt_repeat "$HARNESS")
-  clear=$(fm_control_interrupt_clear_key "$HARNESS")
+  key=$(fm_control_interrupt_key "$HARNESS") \
+    || die "harness $HARNESS has no verified interrupt sequence with a semantic cancellation acknowledgement; refusing to record key delivery as interruption"
+  repeat=$(fm_control_interrupt_repeat "$HARNESS") \
+    || die "harness $HARNESS has no verified interrupt repeat count"
+  clear=$(fm_control_interrupt_clear_key "$HARNESS") \
+    || die "harness $HARNESS has no verified post-interrupt composer contract"
   fm_control_backend_supports_key "$BACKEND" "$key" \
     || die "harness $HARNESS interrupts with $key, which the $BACKEND backend cannot deliver; refusing to send a different key"
   [ -z "$clear" ] || fm_control_backend_supports_key "$BACKEND" "$clear" \

@@ -601,6 +601,49 @@ Grok was not installed on the verification machine for this 2026-09-14 change, s
 This closes only #3436's idle-composer-misclassification symptom (Grok/Herdr composer read `unknown` instead of `empty`, blocking away-mode injection). The issue's second symptom - a leftover watcher never yielding and never being taken over or refused at AFK start - is unrelated to composer classification and is tracked separately in #2270, where #3436's reproduction serves as corroborating evidence.
 Cursor is deliberately outside this cursor-anchored empty-composer matrix because its terminal cursor is parked outside the composer; tmux's Cursor-specific, process-identity-gated cursorless fallback is covered by the [Cursor Agent CLI](#cursor-agent-cli) section's separate live evidence and drift guard.
 
+### Copilot CLI 1.0.86-2 composer and liveness, 2026-09-17
+
+A real Copilot worker ran on tmux 3.6b in an isolated repository, Copilot home, Firstmate state directory, and private tmux socket.
+After a normal hook-backed turn settled, the production control path used the same foreground process identity and half-box composer classifier as ordinary recovery:
+
+```sh
+FM_HOME=<isolated-home> FM_STATE_OVERRIDE=<isolated-state> \
+  PATH=<private-tmux-wrapper>:$PATH \
+  bin/fm-control.sh live-interrupt exit
+```
+
+Observed output:
+
+```text
+stopped live-interrupt harness=copilot backend=tmux endpoint=worker:fm-live-interrupt worktree=<isolated-repo>
+```
+
+The dedicated current-version composer guard also passed with only Copilot exposed on `PATH`:
+
+```sh
+PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+  COPILOT_HOME=<isolated-home> COPILOT_ALLOW_ALL=true \
+  FM_COMPOSER_MATRIX_LIVE=1 TMPDIR=<isolated-tmp> \
+  bin/fm-test-run.sh tests/fm-composer-matrix-live-e2e.test.sh
+```
+
+```text
+ok - copilot (GitHub Copilot CLI 1.0.86-2.): real idle composer classifies empty
+ok - strict posture live: a blank shell row classifies unknown and injection defers
+ok - live composer-matrix guard verified 2 live surface(s)
+```
+
+The successful precondition proves the live foreground process classified `alive` and the current Copilot half-box classified `empty`; the `/exit` result then returned the shell-preserved endpoint to `dead`.
+`tests/fm-copilot-harness.test.sh` independently separates the identity sources, rejects a stale `pane_current_command=copilot`, and pins blank, typed, malformed, and wrong-identity half-box verdicts.
+
+The selective forward-port was re-verified on 2026-09-18 against the installed `GitHub Copilot CLI 1.0.86.`.
+`FM_HARNESS_LIVENESS_DRIFT=1 bin/fm-test-run.sh tests/fm-harness-liveness-drift-live-e2e.test.sh` reported Copilot `alive` from `/opt/homebrew/bin/copilot` and `comm copilot` ancestry before later failing on an unrelated non-starting OpenCode installation.
+`FM_COMPOSER_MATRIX_LIVE=1 bin/fm-test-run.sh tests/fm-composer-matrix-live-e2e.test.sh` reported Copilot's real idle composer `empty` before later reporting unrelated Claude trust and OpenCode startup failures.
+On 2026-09-19, `FM_COPILOT_LIVE_E2E=1 bin/fm-test-run.sh tests/fm-copilot-primary-live-e2e.test.sh` passed against `GitHub Copilot CLI 1.0.87-0.`: native session context, unsafe watcher-arm denial, bounded stop continuation, a receipt-claimed `agentStop` fallback that forced the wake/drain/ack cycle when no notification-hook payload arrived, and exact acknowledgement.
+
+Native Windows Copilot support is not part of this forward-port.
+The earlier fork's PowerShell launcher, native process ownership, ACL validation, Windows Herdr path conversion, and Windows-specific test suites remain archived evidence only and are not shipped by this branch.
+
 `zellij action dump-screen --pane-id <id> --ansi` was verified at zellij 0.44.0 to preserve ANSI styling (real Claude Code rendered inside a zellij pane dumped `ESC[m` `❯` U+00A0 for its idle composer row), which is the capability the zellij composer classifier reads.
 
 ### 2026-09-15 codex-cli 0.154.0 idle starfield and status footer through Herdr

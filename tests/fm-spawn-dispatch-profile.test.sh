@@ -132,7 +132,7 @@ test_no_profile_keeps_claude_profile_defaults() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" claude default default
 
   launch=$(cat "$LAUNCH_LOG")
-  expected="export COMPACT_ADVISER_DISABLE=1; env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/launch-brief.md')\""
+  expected="export COMPACT_ADVISER_DISABLE=1; env -u COPILOT_CLI -u COPILOT_AGENT_SESSION_ID -u COPILOT_LOADER_PID -u COPILOT_CLI_BINARY_VERSION env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/launch-brief.md')\""
   [ "$launch" = "$expected" ] || fail "no-profile claude launch did not use the canonical launch kind"$'\n'"expected: $expected"$'\n'"actual:   $launch"
   pass "no --model/--effort records defaults and types the claude launch instructions"
 }
@@ -152,6 +152,40 @@ test_non_cursor_launch_clears_inherited_cursor_markers() {
     "non-cursor launch must clear both inherited Cursor identity markers"
   pass "non-cursor launches clear inherited Cursor identity markers"
 }
+test_non_copilot_launch_clears_inherited_copilot_markers() {
+  local harness rec id out status launch
+  for harness in claude rovo omp; do
+    id="profile-$harness-copilot-markers-z1c"
+    rec=$(make_spawn_case "profile-$harness-copilot-markers" "$harness" "$id")
+    read_case_record "$rec"
+    case "$harness" in
+      rovo)
+        cat > "$FAKEBIN_DIR/rovo" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+        chmod +x "$FAKEBIN_DIR/rovo"
+        ;;
+      omp) make_spawn_pi_probe "$FAKEBIN_DIR" omp ;;
+    esac
+    out=$(COPILOT_CLI=1 COPILOT_AGENT_SESSION_ID=s1 COPILOT_LOADER_PID=42 COPILOT_CLI_BINARY_VERSION=1 \
+      run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+    status=$?
+    case "$harness" in
+      rovo)
+        [ "$status" -ne 0 ] || fail "rovo's fake pane should still fail its ready gate after logging the launch command"
+        assert_contains "$out" "rovo did not show a verified ready signal" \
+          "rovo's fake-pane readiness failure changed unexpectedly"
+        ;;
+      *) expect_code 0 "$status" "$harness spawn under Copilot markers should succeed" ;;
+    esac
+    launch=$(cat "$LAUNCH_LOG")
+    assert_contains "$launch" "env -u COPILOT_CLI -u COPILOT_AGENT_SESSION_ID -u COPILOT_LOADER_PID -u COPILOT_CLI_BINARY_VERSION" \
+      "$harness launch must clear inherited Copilot identity markers"
+  done
+  pass "non-copilot launches clear inherited Copilot identity markers"
+}
+
 
 test_relative_home_overrides_launch_with_absolute_cross_process_paths() {
   local rec id out status launch home_real
@@ -552,6 +586,140 @@ test_grok_omits_invalid_xhigh_reasoning_effort() {
   pass "grok omits unsupported xhigh reasoning effort"
 }
 
+test_copilot_threads_launch_hooks_and_completion() {
+  local rec id out status launch hooks hook_cmd
+  id=profile-copilot-z6c
+  rec=$(make_spawn_case profile-copilot copilot "$id")
+  read_case_record "$rec"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" \
+    --model gpt-5.6-sol --effort max)
+  status=$?
+  expect_code 0 "$status" "copilot spawn with model and max effort should succeed"
+  assert_meta_profile "$HOME_DIR/state/$id.meta" copilot gpt-5.6-sol max
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "copilot --allow-all --no-ask-user --model 'gpt-5.6-sol' --reasoning-effort 'max' -i" \
+    "copilot launch did not carry autonomy, model, reasoning effort, and interactive prompt flags"
+  assert_not_contains "$launch" " --effort " "copilot launch used the undocumented effort abbreviation"
+  assert_contains "$launch" "env -u CLAUDECODE -u CLAUDE_PROJECT_DIR -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS" \
+    "copilot launch did not clear foreign primary markers"
+  assert_contains "$launch" "encode launch-brief" "copilot launch lost the typed launch instructions"
+  hooks="$WT_DIR/.github/hooks/fm-busy-state-$id.json"
+  assert_present "$hooks" "copilot spawn did not install the worker lifecycle hook"
+  assert_present "$HOME_DIR/state/$id.busy-gen" "copilot crew spawn did not arm the busy-state contract"
+  hook_cmd=$(jq -r '.hooks.userPromptSubmitted[0].bash' "$hooks")
+  printf '%s' '{"sessionId":"parent"}' | sh -c "$hook_cmd" || fail "copilot userPromptSubmitted worker hook failed"
+  assert_contains "$(cat "$HOME_DIR/state/$id.busy-state")" "state=busy source=copilot-hook" \
+    "copilot userPromptSubmitted hook did not open semantic busy state"
+  assert_grep 'session=parent' "$HOME_DIR/state/$id.copilot-session" \
+    "copilot hook did not latch the parent session"
+  rm -f "$HOME_DIR/state/$id.turn-ended"
+  hook_cmd=$(jq -r '.hooks.agentStop[0].bash' "$hooks")
+  printf '%s' '{"sessionId":"parent"}' | sh -c "$hook_cmd" || fail "copilot agentStop worker hook failed"
+  assert_present "$HOME_DIR/state/$id.turn-ended" "copilot agentStop hook did not touch the notification marker"
+  assert_contains "$(cat "$HOME_DIR/state/$id.busy-state")" "state=idle source=copilot-hook" \
+    "copilot agentStop hook did not settle semantic busy state"
+  pass "copilot launch and generated worker hooks carry the complete adapter contract"
+}
+
+test_copilot_secondmate_uses_primary_hooks_without_worker_state() {
+  local rec id sm out status launch hook
+  id=profile-copilot-secondmate-z6d
+  rec=$(make_spawn_case profile-copilot-secondmate copilot "$id")
+  read_case_record "$rec"
+  sm="$CASE_DIR/secondmate-home"
+  make_seeded_secondmate_home "$sm" "$id"
+  mkdir -p "$sm/.github/hooks"
+  hook="$sm/.github/hooks/fm-primary.json"
+  printf '%s\n' '{"version":1,"hooks":{}}' > "$hook"
+
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate)
+  status=$?
+  expect_code 0 "$status" "copilot secondmate spawn should succeed"$'\n'"$out"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "copilot --allow-all --no-ask-user" \
+    "copilot secondmate launch did not use the verified unattended command"
+  assert_contains "$launch" "encode launch-brief" \
+    "copilot secondmate launch lost the typed launch instructions"
+  [ "$(cat "$hook")" = '{"version":1,"hooks":{}}' ] \
+    || fail "copilot secondmate launch modified its tracked primary hook"
+  assert_absent "$sm/.github/hooks/fm-busy-state-$id.json" \
+    "copilot secondmate launch installed a worker hook into a primary home"
+  assert_absent "$HOME_DIR/state/$id.busy-gen" \
+    "copilot secondmate launch armed task busy state for a persistent primary"
+  pass "a local Copilot secondmate keeps primary hooks and skips worker-only state"
+}
+
+test_copilot_accepts_only_session_trust() {
+  local rec id out status capture dialog key_log kill_log launch_marker hooks
+  id=profile-copilot-trust-z6ht
+  rec=$(make_spawn_case profile-copilot-trust copilot "$id")
+  read_case_record "$rec"
+  capture="$CASE_DIR/trust-pane"
+  dialog="$CASE_DIR/trust-dialog"
+  key_log="$CASE_DIR/trust-keys"
+  kill_log="$CASE_DIR/trust-kills"
+  launch_marker="$CASE_DIR/copilot-launched"
+  : > "$capture"
+  cat > "$dialog" <<EOF
+Confirm folder trust
+$WT_DIR
+Do you trust the files in this folder?
+❯ 1. Yes
+2. Yes, and remember this folder for future sessions
+3. No (Esc)
+EOF
+  out=$(FM_FAKE_TMUX_CAPTURE_FILE="$capture" \
+    FM_FAKE_TMUX_TRUST_DIALOG_FILE="$dialog" \
+    FM_FAKE_TMUX_TRUST_KEY_LOG="$key_log" \
+    FM_FAKE_TMUX_TRUST_CLEAR_ON_ENTER=1 \
+    FM_FAKE_TMUX_COPILOT_LAUNCH_MARKER="$launch_marker" \
+    FM_FAKE_TMUX_KILL_LOG="$kill_log" \
+    FM_TEST_COPILOT_TRUST_POLLS=2 \
+    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  expect_code 0 "$status" "copilot spawn should accept the verified session-only trust default"
+  [ "$(cat "$key_log")" = Enter ] || fail "copilot trust handling did not send exactly one verified Enter"
+  [ "$(cat "$capture")" = 'Copilot ready' ] || fail "copilot trust handling did not verify the dialog cleared"
+  assert_absent "$HOME_DIR/user-home/.copilot/config.json" \
+    "copilot trust handling persisted a disposable worktree in the user config"
+  assert_absent "$kill_log" "a successful Copilot trust acceptance killed the endpoint"
+
+  id=profile-copilot-trust-refuse-z6hu
+  rec=$(make_spawn_case profile-copilot-trust-refuse copilot "$id")
+  read_case_record "$rec"
+  capture="$CASE_DIR/trust-pane"
+  dialog="$CASE_DIR/trust-dialog"
+  key_log="$CASE_DIR/trust-keys"
+  kill_log="$CASE_DIR/trust-kills"
+  launch_marker="$CASE_DIR/copilot-launched"
+  : > "$capture"
+  cat > "$dialog" <<EOF
+Confirm folder trust
+$WT_DIR
+Do you trust the files in this folder?
+1. Yes
+❯ 2. Yes, and remember this folder for future sessions
+3. No (Esc)
+EOF
+  out=$(FM_FAKE_TMUX_CAPTURE_FILE="$capture" \
+    FM_FAKE_TMUX_TRUST_DIALOG_FILE="$dialog" \
+    FM_FAKE_TMUX_TRUST_KEY_LOG="$key_log" \
+    FM_FAKE_TMUX_TRUST_CLEAR_ON_ENTER=1 \
+    FM_FAKE_TMUX_COPILOT_LAUNCH_MARKER="$launch_marker" \
+    FM_FAKE_TMUX_KILL_LOG="$kill_log" \
+    FM_TEST_COPILOT_TRUST_POLLS=2 \
+    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  [ "$status" -ne 0 ] || fail "copilot spawn accepted a remembered-trust selection"
+  assert_contains "$out" "did not match the verified session-only default selection" \
+    "copilot trust refusal did not name the changed dialog"
+  assert_absent "$key_log" "copilot trust refusal sent a key to a non-default selection"
+  assert_present "$kill_log" "copilot trust refusal left the attempted endpoint running"
+  hooks="$WT_DIR/.github/hooks/fm-busy-state-$id.json"
+  assert_absent "$hooks" "copilot trust refusal left its generated worker hook behind"
+  pass "copilot spawn accepts only session trust and cleans up refusals"
+}
+
 test_cursor_threads_model_workspace_and_omits_effort_axis() {
   local rec id out status launch
   id=profile-cursor-z6c
@@ -883,7 +1051,7 @@ test_claude_forwards_firstmate_config_dir_when_set() {
   status=$?
   expect_code 0 "$status" "claude spawn with CLAUDE_CONFIG_DIR set should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$CASE_DIR/claude-work' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}'" \
+  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$CASE_DIR/claude-work' env -u COPILOT_CLI -u COPILOT_AGENT_SESSION_ID -u COPILOT_LOADER_PID -u COPILOT_CLI_BINARY_VERSION env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}'" \
     "claude launch did not forward firstmate's CLAUDE_CONFIG_DIR to the crewmate pane"
   pass "claude forwards firstmate's CLAUDE_CONFIG_DIR so the crewmate uses the same credential store"
 }
@@ -1329,7 +1497,7 @@ SH
 # permission flag, and any other token refuses before endpoint or metadata.
 claude_expected_launch() {  # <home> <id> <permission-flag>
   local home=$1 id=$2 flag=$3
-  printf '%s' "export COMPACT_ADVISER_DISABLE=1; env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $flag --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$home/data/$id/launch-brief.md')\""
+  printf '%s' "export COMPACT_ADVISER_DISABLE=1; env -u COPILOT_CLI -u COPILOT_AGENT_SESSION_ID -u COPILOT_LOADER_PID -u COPILOT_CLI_BINARY_VERSION env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude $flag --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' $CLAUDE_CONTROL_CHANNEL_FLAG \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$home/data/$id/launch-brief.md')\""
 }
 
 test_claude_permission_mode_bypass_matches_absent_launch() {
@@ -1420,6 +1588,7 @@ test_non_claude_harness_ignores_claude_permission_mode() {
 test_worker_launch_delivers_role_scope
 test_no_profile_keeps_claude_profile_defaults
 test_non_cursor_launch_clears_inherited_cursor_markers
+test_non_copilot_launch_clears_inherited_copilot_markers
 test_relative_home_overrides_launch_with_absolute_cross_process_paths
 test_home_defaults_preserve_absolute_or_resolve_relative_paths
 test_absolute_override_spelling_is_preserved_in_launch_paths
@@ -1438,6 +1607,9 @@ test_codex_secondmate_launch_keeps_the_hook_layer
 test_grok_threads_model_and_reasoning_effort
 test_grok_omits_invalid_max_reasoning_effort
 test_grok_omits_invalid_xhigh_reasoning_effort
+test_copilot_threads_launch_hooks_and_completion
+test_copilot_accepts_only_session_trust
+test_copilot_secondmate_uses_primary_hooks_without_worker_state
 test_cursor_threads_model_workspace_and_omits_effort_axis
 test_cursor_refuses_model_absent_from_live_catalog
 test_cursor_failed_catalog_probe_does_not_block_spawn

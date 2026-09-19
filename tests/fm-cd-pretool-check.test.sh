@@ -5,7 +5,7 @@
 # bin/fm-cd-command-policy.mjs is the single owner of the block/allow decision;
 # it reuses the shell classifier owned by bin/fm-arm-command-policy.mjs.
 # bin/fm-cd-pretool-check.sh is the stable transport: it scopes the guard to the
-# real primary checkout, then drives all five harness entry forms. This suite
+# real primary checkout, then drives all six harness entry forms. This suite
 # proves the decision matrix, the harness-output shaping, the primary-checkout
 # scoping (including the deliberate secondmate-home difference from the turn-end
 # guard), the fail-open transport behavior, the prefilter fast path, the
@@ -18,6 +18,10 @@ set -u
 
 fm_git_identity fmtest fmtest@example.invalid
 TMP_ROOT=$(fm_test_tmproot fm-cd-pretool-check)
+HOST_BIN=$(fm_fakebin "$TMP_ROOT/hook-host")
+fm_fake_blind_ancestry "$HOST_BIN"
+PATH="$HOST_BIN:$PATH"
+export PATH
 
 # A primary-shaped checkout: plain (non-worktree) git repo, AGENTS.md, bin/ with
 # the transport plus both policy files (fm-cd-command-policy.mjs imports the
@@ -28,6 +32,7 @@ install_cd_scripts() {
   mkdir -p "$dir/bin"
   cp "$ROOT/bin/fm-cd-pretool-check.sh" "$dir/bin/fm-cd-pretool-check.sh"
   cp "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/fm-hook-host-lib.sh"
+  cp "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" "$dir/bin/"
   cp "$ROOT/bin/fm-cd-command-policy.mjs" "$dir/bin/fm-cd-command-policy.mjs"
   cp "$ROOT/bin/fm-arm-command-policy.mjs" "$dir/bin/fm-arm-command-policy.mjs"
   chmod +x "$dir/bin/fm-cd-pretool-check.sh" "$dir/bin/fm-cd-command-policy.mjs"
@@ -162,6 +167,11 @@ run_matrix_entry() {
       printf '%s' "$payload" | "$CHECK" --claude >"$out_file" 2>"$err_file"
       rc=$?
       ;;
+    copilot)
+      payload=$(jq -cn --arg command "$cmd" '{toolName:"bash",toolArgs:{command:$command}}')
+      printf '%s' "$payload" | "$CHECK" --copilot >"$out_file" 2>"$err_file"
+      rc=$?
+      ;;
     grok)
       payload=$(jq -cn --arg command "$cmd" '{toolName:"run_terminal_command",toolInput:{command:$command}}')
       printf '%s' "$payload" | "$CHECK" >"$out_file" 2>"$err_file"
@@ -182,6 +192,13 @@ run_matrix_entry() {
     [ ! -s "$err_file" ] || fail "$id via $entry allow must leave stderr empty: $(cat "$err_file")"
     return
   fi
+  if [ "$entry" = copilot ]; then
+    expect_code 0 "$rc" "$id via copilot must return its native decision object"
+    jq -e '.permissionDecision == "deny" and (.permissionDecisionReason | test("\\[persistent-cd\\]"))' "$out_file" >/dev/null 2>&1 \
+      || fail "$id via copilot deny must carry the persistent-cd reason: $(cat "$out_file")"
+    [ ! -s "$err_file" ] || fail "$id via copilot deny must leave stderr empty: $(cat "$err_file")"
+    return
+  fi
 
   [ "$rc" -eq 2 ] || fail "$id via $entry must deny, got exit $rc"
   jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.systemMessage | test("\\[persistent-cd\\]"))' "$err_file" >/dev/null 2>&1 \
@@ -197,11 +214,11 @@ run_matrix_entry() {
 test_full_acceptance_matrix() {
   local i entry
   for ((i = 0; i < ${#MATRIX_IDS[@]}; i++)); do
-    for entry in codex claude grok opencode pi; do
+    for entry in codex claude copilot grok opencode pi; do
       run_matrix_entry "${MATRIX_IDS[$i]}" "${MATRIX_EXPECTED[$i]}" "$entry" "${MATRIX_COMMANDS[$i]}"
     done
   done
-  pass "cd-guard acceptance matrix: ${#MATRIX_IDS[@]} cases x 5 harness entry forms, block/allow all correct"
+  pass "cd-guard acceptance matrix: ${#MATRIX_IDS[@]} cases x 6 harness entry forms, block/allow all correct"
 }
 
 # --- primary-checkout scoping ----------------------------------------------

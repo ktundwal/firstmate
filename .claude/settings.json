@@ -5,8 +5,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; exec \"$CLAUDE_PROJECT_DIR\"/bin/fm-sessionstart-run.sh",
-            "timeout": 180
+            "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; ROOT=${CLAUDE_PROJECT_DIR:-$(git -C \"$(pwd -P 2>/dev/null || pwd)\" rev-parse --show-toplevel 2>/dev/null)}; [ -x \"$ROOT/bin/fm-claude-compat-hook.sh\" ] || exit 0; exec \"$ROOT/bin/fm-claude-compat-hook.sh\" fm-sessionstart-run.sh",
+            "timeout": 180,
+            "cwd": ".",
+            "timeoutSec": 180
           }
         ]
       }
@@ -17,11 +19,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; exec \"$CLAUDE_PROJECT_DIR\"/bin/fm-arm-pretool-check.sh --claude"
+            "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; ROOT=${CLAUDE_PROJECT_DIR:-$(git -C \"$(pwd -P 2>/dev/null || pwd)\" rev-parse --show-toplevel 2>/dev/null)}; [ -x \"$ROOT/bin/fm-claude-compat-hook.sh\" ] || exit 0; exec \"$ROOT/bin/fm-claude-compat-hook.sh\" fm-arm-pretool-check.sh --claude",
+            "cwd": "."
           },
           {
             "type": "command",
-            "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; exec \"$CLAUDE_PROJECT_DIR\"/bin/fm-cd-pretool-check.sh --claude"
+            "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; ROOT=${CLAUDE_PROJECT_DIR:-$(git -C \"$(pwd -P 2>/dev/null || pwd)\" rev-parse --show-toplevel 2>/dev/null)}; [ -x \"$ROOT/bin/fm-claude-compat-hook.sh\" ] || exit 0; exec \"$ROOT/bin/fm-claude-compat-hook.sh\" fm-cd-pretool-check.sh --claude",
+            "cwd": "."
           }
         ]
       },
@@ -30,7 +34,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/bin/fm-subagent-pretool-check.sh --claude"
+            "command": "ROOT=${CLAUDE_PROJECT_DIR:-$(git -C \"$(pwd -P 2>/dev/null || pwd)\" rev-parse --show-toplevel 2>/dev/null)}; [ -x \"$ROOT/bin/fm-claude-compat-hook.sh\" ] || exit 0; exec \"$ROOT/bin/fm-claude-compat-hook.sh\" fm-subagent-pretool-check.sh --claude",
+            "cwd": "."
           }
         ]
       }
@@ -40,13 +45,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; exec \"$CLAUDE_PROJECT_DIR\"/bin/fm-turnend-guard.sh --claude"
+            "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; ROOT=${CLAUDE_PROJECT_DIR:-$(git -C \"$(pwd -P 2>/dev/null || pwd)\" rev-parse --show-toplevel 2>/dev/null)}; [ -x \"$ROOT/bin/fm-claude-compat-hook.sh\" ] || exit 0; exec \"$ROOT/bin/fm-claude-compat-hook.sh\" fm-turnend-guard.sh --claude",
+            "cwd": "."
           },
           {
             "type": "command",
-            "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; exec \"$CLAUDE_PROJECT_DIR\"/bin/fm-claude-stop-autoarm.sh",
+            "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; ROOT=${CLAUDE_PROJECT_DIR:-$(git -C \"$(pwd -P 2>/dev/null || pwd)\" rev-parse --show-toplevel 2>/dev/null)}; [ -x \"$ROOT/bin/fm-claude-compat-hook.sh\" ] || exit 0; exec \"$ROOT/bin/fm-claude-compat-hook.sh\" fm-claude-stop-autoarm.sh",
             "asyncRewake": true,
-            "timeout": 28800
+            "timeout": 28800,
+            "cwd": ".",
+            "timeoutSec": 28800
           }
         ]
       }

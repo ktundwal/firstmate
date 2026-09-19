@@ -63,6 +63,41 @@ SH
   printf '%s\n' "$fakebin"
 }
 
+# Copilot's rendered pane title is not process identity. Model its real
+# foreground MainThread shape so secondmate recovery exercises the same
+# liveness evidence as production instead of weakening the classifier.
+make_copilot_probe_tmux() {
+  local dir=$1 fakebin
+  fakebin=$(fm_fakebin "$dir")
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "${1:-}" in
+  display-message)
+    for a in "$@"; do
+      case "$a" in
+        *pane_tty*) printf '%s\n' '/dev/pts/fm-copilot'; exit 0 ;;
+        *pane_current_command*) printf '%s\n' copilot; exit 0 ;;
+      esac
+    done
+    exit 0 ;;
+  list-windows) printf '%s\n' win; exit 0 ;;
+esac
+exit 0
+SH
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "$*" in
+  *'-t pts/fm-copilot -o pid=,pgid=,tpgid=,comm='*) printf '%s\n' '111 222 222 MainThread' ;;
+  *'-p 111 -o args='*) printf '%s\n' '/opt/homebrew/bin/copilot --allow-all' ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$fakebin/tmux" "$fakebin/ps"
+  printf '%s\n' "$fakebin"
+}
+
 # make_failed_probe_tmux <dir> <inventory>: missing and present fail the pane
 # read, while unreadable returns a misleading fallback node process but fails
 # the inventory that must be authoritative.
@@ -102,6 +137,12 @@ test_tmux_agent_state_classifies() {
     out=$(PATH="$fb:$BASE_PATH" bash -c '. "$0/bin/fm-backend.sh"; fm_backend_agent_state tmux sess:win' "$ROOT")
     [ "$out" = alive ] || fail "a live $harness foreground process should classify as alive, got '$out'"
   done
+
+  fb=$(make_copilot_probe_tmux "$TMP_ROOT/tmux-copilot")
+  out=$(PATH="$fb:$BASE_PATH" bash -c '. "$0/bin/fm-backend.sh"; fm_backend_agent_state tmux sess:win' "$ROOT")
+  [ "$out" = alive ] || fail "a live Copilot foreground process should classify as alive, got '$out'"
+  [ "$(PATH="$fb:$BASE_PATH" bash -c '. "$0/bin/fm-backend.sh"; fm_backend_agent_alive tmux sess:win' "$ROOT")" = alive ] \
+    || fail "the compatibility view must preserve a live Copilot process"
 
   for shell in zsh bash -zsh; do
     fb=$(make_probe_tmux "$TMP_ROOT/tmux-${shell#-}" "$shell")
@@ -165,7 +206,7 @@ test_herdr_agent_state_preserves_husk_classifier() {
   for row in 'dead missing' 'no-agent dead' 'live alive' 'unknown unreadable'; do
     pane_state=${row%% *}
     expected=${row#* }
-    out=$(FM_TEST_PANE_STATE="$pane_state" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_pane_agent_state() { printf "%s" "$FM_TEST_PANE_STATE"; }; fm_backend_herdr_agent_state "sess:p1"' "$ROOT")
+    out=$(FM_TEST_PANE_STATE="$pane_state" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_pane_agent_state() { printf "%s" "$FM_TEST_PANE_STATE"; }; fm_backend_herdr_server_running_state() { printf "running"; }; fm_backend_herdr_agent_state "sess:p1"' "$ROOT")
     [ "$out" = "$expected" ] || fail "Herdr pane state $pane_state should map to $expected, got '$out'"
   done
 

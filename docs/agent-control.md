@@ -37,6 +37,8 @@ A recorded `harness=` is not always an exact adapter name: a task launched from 
 An exit that delivers lifecycle input but cannot prove the agent stopped fails with `exit=unconfirmed`, reports the observed agent state and any interrupt cancellation claim, and never claims that nothing changed.
 Interrupt never rewrites busy state as proof of its own success.
 Claude exposes no lifecycle acknowledgement for a manual interrupt, so delivery succeeds with `cancel=unconfirmed` and its adapter-owned busy state remains as observed.
+Copilot CLI cancels an active tool on Ctrl+C in the current release, but emits no worker lifecycle hook that acknowledges cancellation or settles Firstmate's semantic busy record.
+Firstmate therefore refuses Copilot `interrupt` rather than reporting unconfirmed key delivery as a completed interruption; idle Copilot sessions still support `/exit` and deterministic relaunch.
 muse's session log records `terminal=cancelled` for the interrupted run, so the control plane reports `cancel=confirmed` only after observing that exact acknowledgement.
 
 An interrupt is not complete until the composer is empty.

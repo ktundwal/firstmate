@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Detect the agent harness this process tree runs on.
-# Usage: fm-harness.sh                  print own harness: claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy|unknown
+# Usage: fm-harness.sh                  print own harness: claude|codex|copilot|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy|unknown
 #        fm-harness.sh crew             print the effective CREWMATE harness
 #                                        (config/crew-harness; "default" resolves to own)
 #        fm-harness.sh secondmate       print the harness the PRIMARY uses to launch
@@ -62,8 +62,8 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 
-# shellcheck source=bin/fm-cursor-lib.sh
-. "$SCRIPT_DIR/fm-cursor-lib.sh"
+# shellcheck source=bin/fm-harness-process-lib.sh
+. "$SCRIPT_DIR/fm-harness-process-lib.sh"
 # shellcheck source=bin/fm-gemini-lib.sh
 . "$SCRIPT_DIR/fm-gemini-lib.sh"
 
@@ -71,6 +71,15 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 # marker is present. Markers only report what the environment CLAIMS; detect_own
 # decides whether that claim survives contradicting ancestry.
 harness_marker() {
+  # Copilot's marker is tested before inherited Claude and Cursor markers, but
+  # never before another adapter's positive marker. A structural ancestry
+  # verdict remains authoritative when it is available.
+  if [ "${COPILOT_CLI:-}" = "1" ] && [ "${GEMINI_CLI:-}" != "1" ] \
+    && [ "${ATLASSIAN_AGENT_TYPE:-}" != rovo ] && [ "${ROVODEV_CLI:-}" != "1" ] \
+    && [ "${PI_CODING_AGENT:-}" != true ] && [ "${GROK_AGENT:-}" != "1" ]; then
+    echo copilot
+    return
+  fi
   # Cursor is tested BEFORE claude, deliberately. cursor-agent does NOT clear an
   # inherited CLAUDECODE, so a cursor session started by hand from a claude
   # primary carries BOTH markers and whichever is tested first wins. This
@@ -133,9 +142,9 @@ harness_marker() {
   # identified, and any rule that must be RELIABLE under grok has to test the hook
   # markers too (see .claude/settings.json Stop entries, docs/turnend-guard.md).
   [ "${GROK_AGENT:-}" = "1" ] && { echo grok; return; }
-  # codex, opencode, kimi, muse, and agy publish no harness-identity marker at all, so
-  # they are never named here and are identified by ancestry alone. That is the
-  # whole reason a foreign marker must not outrank ancestry: with markers winning
+  # codex, copilot, opencode, kimi, muse, and agy publish no unambiguous
+  # marker usable in every process, so ancestry remains authoritative for them.
+  # This is the whole reason a foreign marker must not outrank ancestry: with markers winning
   # unconditionally, any retained CLAUDECODE would silently rename one of them.
   # muse's only documented child variable is MUSE_CURRENT_SESSION_LOG, a
   # per-session log PATH rather than an identity, and its export to tool
@@ -153,8 +162,10 @@ ancestry_names_omp() {
   for _ in 1 2 3 4 5 6 7 8; do
     comm=$(ps -o comm= -p "$pid" 2>/dev/null) || return 1
     [ "$(basename -- "$comm")" = omp ] && return 0
+    [ "$pid" -eq 1 ] && return 1
     pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
-    [ -n "$pid" ] && [ "$pid" -gt 1 ] || return 1
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$pid" -ge 1 ] || return 1
   done
   return 1
 }
@@ -168,7 +179,7 @@ ancestry_names_omp() {
 #          (any node process holding a harness-shaped path matches it), so it is
 #          used only when no marker is present.
 harness_process_verdict() {  # <pid>
-  local pid=$1 comm args argv0
+  local pid=$1 comm args argv0 matched_name comm_base
   comm=$(ps -o comm= -p "$pid" 2>/dev/null) || return 0
   argv0=$(fm_cursor_argv0_for_pid "$pid" "$comm" 2>/dev/null || true)
   if fm_cursor_process_matches "$comm" '' "$argv0"; then
@@ -177,6 +188,17 @@ harness_process_verdict() {  # <pid>
   fi
   if fm_gemini_path_is_gemini "$comm"; then
     echo "comm gemini"
+    return
+  fi
+  args=$(ps -o args= -p "$pid" 2>/dev/null || true)
+  if fm_harness_process_matches_live "$comm" "$args"; then
+    matched_name=$FM_HARNESS_MATCH_NAME
+    comm_base=$(basename -- "$comm")
+    case "$matched_name:$comm_base" in
+      copilot:node*|copilot:MainThread) echo "args copilot" ;;
+      pi-signed:*) echo "comm pi" ;;
+      *) echo "comm $matched_name" ;;
+    esac
     return
   fi
   case "$(basename -- "$comm")" in
@@ -253,6 +275,7 @@ harness_ancestry() {  # [<pid>]
   for _ in 1 2 3 4 5 6 7 8; do
     verdict=$(harness_process_verdict "$pid")
     [ -z "$verdict" ] || { echo "$verdict"; return; }
+    [ "$pid" -eq 1 ] && break
     pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
     # Stop only once the walk has EXAMINED the top of the chain. Inside a PID
     # namespace the harness itself is pid 1 - a container, or the `codex sandbox`

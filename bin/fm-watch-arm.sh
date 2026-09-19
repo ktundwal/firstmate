@@ -63,6 +63,10 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-copilot-watcher-receipt-lib.sh
+. "$SCRIPT_DIR/fm-copilot-watcher-receipt-lib.sh"
+# shellcheck source=bin/fm-hook-host-lib.sh
+. "$SCRIPT_DIR/fm-hook-host-lib.sh"
 
 WATCH="$SCRIPT_DIR/fm-watch.sh"
 WATCH_LOCK="$STATE/.watch.lock"
@@ -330,6 +334,7 @@ attach_and_wait() {
       continue
     fi
     if close_unobserved_cycle; then
+      copilot_publish_completion_receipt_nonfatal
       cycle_log_append unknown unknown attached-delivered-wake none
       return 0
     fi
@@ -371,6 +376,17 @@ print_watch_output() {
   local out=$1
   [ -s "$out" ] && cat "$out"
 }
+copilot_publish_completion_receipt() {
+  [ "$(fm_hook_actual_host)" = copilot ] || return 0
+  fm_copilot_watch_receipt_publish "$FM_ROOT" "$FM_HOME" "$STATE"
+}
+
+copilot_publish_completion_receipt_nonfatal() {
+  copilot_publish_completion_receipt && return 0
+  echo "watcher: warning: copilot watcher completion receipt could not be written" >&2
+  return 0
+}
+
 
 handling_successor_generation() {
   [ -n "${FM_WATCH_PREDECESSOR_ARM_PID:-}" ] || return 0
@@ -492,6 +508,7 @@ owned_child_finished() {
   signal=$(cycle_signal_name "$rc")
   if [ "$rc" -eq 0 ] && watch_output_has_wake "$child_out"; then
     reason_type=$(watch_output_reason_type "$child_out")
+    copilot_publish_completion_receipt_nonfatal
     cycle_log_append "$rc" "$signal" "$reason_type" none
     print_watch_output "$child_out"
     rm -f "$child_out" 2>/dev/null || true
@@ -518,6 +535,7 @@ owned_child_finished() {
     child=
     child_out=
     if close_unobserved_cycle; then
+      copilot_publish_completion_receipt_nonfatal
       cycle_log_append "$rc" "$signal" clean-exit-delivered-wake none
       return 0
     fi

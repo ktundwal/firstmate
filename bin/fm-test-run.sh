@@ -290,7 +290,7 @@ family_for_basename() {
     fm-harness-adapter-references.test.sh|\
     fm-send-popup-settle.test.sh|fm-send-settle.test.sh|\
     fm-subagent-pretool-check.test.sh|\
-    fm-supervision-instructions.test.sh|fm-task-delivery.test.sh|\
+    fm-supervision-instructions.test.sh|fm-task-delivery.test.sh|fm-copilot-harness.test.sh|\
     fm-tmux-submit-busy.test.sh|fm-trace-context-lib.test.sh|\
     fm-transition-lib.test.sh|\
     fm-test-run.test.sh|fm-test-isolation-proof.test.sh)
@@ -323,8 +323,8 @@ family_for_basename() {
     fm-backlog-handoff.test.sh|fm-on.test.sh|fm-remote-backlog-handoff.test.sh|\
     fm-remote-doctor.test.sh|fm-remote-herdr-guard.test.sh|fm-remote-job.test.sh|fm-remote-job-orphan-reap.test.sh|\
     fm-remote-transport-lanes.test.sh|\
-    fm-remote-reply.test.sh|fm-remote-secondmate-lifecycle-e2e.test.sh|\
-    fm-remote-secondmate-trace-context.test.sh|\
+    fm-remote-reply.test.sh|fm-remote-secondmate-control.test.sh|\
+    fm-remote-secondmate-lifecycle-e2e.test.sh|fm-remote-secondmate-trace-context.test.sh|\
     fm-secondmate-harness.test.sh|fm-secondmate-lifecycle-e2e.test.sh|\
     fm-secondmate-liveness.test.sh|fm-secondmate-reconcile.test.sh|\
     fm-secondmate-restart.test.sh|\
@@ -347,7 +347,7 @@ family_for_basename() {
     fm-composer-codex-idle-live-e2e.test.sh|\
     fm-codex-continuity-live-e2e.test.sh|fm-codex-hook-layer-live-e2e.test.sh|\
     fm-grok-continuity-live-e2e.test.sh|\
-    fm-cursor-primary-live-e2e.test.sh|\
+    fm-copilot-primary-live-e2e.test.sh|fm-cursor-primary-live-e2e.test.sh|\
     fm-grok-stop-live-e2e.test.sh|fm-harness-adapter-instructions-live-e2e.test.sh|\
     fm-harness-liveness-drift-live-e2e.test.sh|\
     fm-muse-signals-live-e2e.test.sh|fm-rovo-signals-live-e2e.test.sh|fm-agy-signals-live-e2e.test.sh|\
@@ -699,6 +699,8 @@ tests/fm-check-unregister.test.sh 464
 tests/fm-ci-workflow.test.sh 2073
 tests/fm-classify-corr-token.test.sh 49294
 tests/fm-classify-decision-key.test.sh 3336
+tests/fm-copilot-harness.test.sh 150000
+tests/fm-copilot-primary-live-e2e.test.sh 300000
 tests/fm-claude-stop-autoarm-live-e2e.test.sh 45
 tests/fm-claude-stop-autoarm.test.sh 60797
 tests/fm-claude-trust.test.sh 10410
@@ -781,6 +783,7 @@ tests/fm-remote-secondmate-lifecycle-e2e.test.sh 241208
 tests/fm-remote-secondmate-parent-binding.test.sh 32176
 tests/fm-remote-secondmate-trace-context.test.sh 59689
 tests/fm-remote-transport-lanes.test.sh 62635
+tests/fm-remote-secondmate-control.test.sh 30000
 tests/fm-rovo-harness.test.sh 14322
 tests/fm-rovo-signals-live-e2e.test.sh 48
 tests/fm-secondmate-harness.test.sh 163801
@@ -1348,6 +1351,13 @@ families_for_changed_path() {
     tests/fm-backend-herdr-eventwait.test.py)
       printf '%s\n' real-herdr-gated
       printf '%s\n' backend-dispatch
+      ;;
+    bin/fm-copilot-hook.sh|bin/fm-copilot-worker-hook.sh|\
+    bin/fm-copilot-watcher-receipt-lib.sh|bin/fm-harness-process-lib.sh|\
+    bin/fm-hook-host-lib.sh|bin/fm-claude-compat-hook.sh)
+      printf '%s\n' __script__:fm-copilot-harness.test.sh
+      printf '%s\n' backend-dispatch
+      printf '%s\n' live-harness-optin
       ;;
     tests/*.test.sh)
       # A single test file change selects only that script via basename family

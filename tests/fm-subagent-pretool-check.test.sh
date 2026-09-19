@@ -8,6 +8,10 @@ set -u
 
 CHECK="$ROOT/bin/fm-subagent-pretool-check.sh"
 TMP_ROOT=$(fm_test_tmproot fm-subagent-pretool-tests)
+HOST_BIN=$(fm_fakebin "$TMP_ROOT/hook-host")
+fm_fake_blind_ancestry "$HOST_BIN"
+PATH="$HOST_BIN:$PATH"
+export PATH
 PRIMARY="$TMP_ROOT/primary"
 STATE="$PRIMARY/state"
 OUT="$TMP_ROOT/out"
@@ -237,12 +241,21 @@ test_stdin_transports_and_output_shapes() {
 
   rc=0
   : > "$OUT"; : > "$ERR"
+  printf '%s' '{"toolName":"Agent","toolArgs":{"prompt":"go"}}' \
+    | FM_ROOT_OVERRIDE="$PRIMARY" FM_HOME="$PRIMARY" FM_STATE_OVERRIDE="$STATE" \
+      "$CHECK" --copilot > "$OUT" 2> "$ERR" || rc=$?
+  [ "$rc" -eq 0 ] || fail "Copilot-shaped stdin must return a native decision object, got exit $rc"
+  jq -e '.permissionDecision == "deny" and (.permissionDecisionReason | startswith("[subagent-dispatch]"))' "$OUT" >/dev/null 2>&1 \
+    || fail "Copilot deny omitted its permission decision: $(cat "$OUT")"
+  [ ! -s "$ERR" ] || fail "Copilot deny wrote stderr: $(cat "$ERR")"
+  rc=0
+  : > "$OUT"; : > "$ERR"
   printf '%s' '{"tool_name":"Bash","tool_input":{"command":"ls"}}' \
     | FM_ROOT_OVERRIDE="$PRIMARY" FM_HOME="$PRIMARY" FM_STATE_OVERRIDE="$STATE" \
       "$CHECK" --claude > "$OUT" 2> "$ERR" || rc=$?
   [ "$rc" -eq 0 ] || fail "Bash through stdin must allow, got exit $rc"
   [ ! -s "$OUT" ] && [ ! -s "$ERR" ] || fail "stdin allow wrote output"
-  pass "both stdin transports classify correctly and Claude's deny keeps stdout empty"
+  pass "Claude, Grok, and Copilot stdin transports classify and render correctly"
 }
 
 test_malformed_transport_fails_open() {

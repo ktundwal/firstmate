@@ -10,8 +10,9 @@
 # fleet-touching command itself, can sit blind for hours.
 # This script is push-based: verified harness turn-end hooks invoke it every time
 # the primary is about to end a turn.
-# Claude and codex can block directly by preserving exit status 2 and stderr.
-# OpenCode and pi adapters use the same predicate and force one bounded
+# Claude and Codex can block directly by preserving exit status 2 and stderr.
+# Copilot's adapter translates that predicate into its native decision object.
+# OpenCode and Pi adapters use the same predicate and force one bounded
 # follow-up because their turn-end events are passive. Grok delegates native
 # blocking when its running Stop payload advertises that capability, with one
 # bounded resume fallback for payloads from pre-native processes. Cursor calls
@@ -99,6 +100,7 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 GRACE=${FM_GUARD_GRACE:-300}
 WATCH="$SCRIPT_DIR/fm-watch.sh"
 CLAUDE_MODE=0
+COPILOT_MODE=0
 CURSOR_MODE=0
 SYNC_WAIT_MS=${FM_CLAUDE_AUTOARM_SYNC_WAIT_MS:-800}
 EPOCH_FRESH=${FM_CLAUDE_AUTOARM_EPOCH_FRESH:-15}
@@ -110,8 +112,9 @@ case "$BLOCK_BUDGET" in ''|*[!0-9]*|0) BLOCK_BUDGET=3 ;; esac
 for arg in "$@"; do
   case "$arg" in
     --claude) CLAUDE_MODE=1 ;;
+    --copilot) COPILOT_MODE=1 ;;
     --cursor) CURSOR_MODE=1 ;;
-    *) echo "usage: $(basename "$0") [--claude|--cursor]" >&2; exit 2 ;;
+    *) echo "usage: $(basename "$0") [--claude|--copilot|--cursor]" >&2; exit 2 ;;
   esac
 done
 
@@ -119,8 +122,6 @@ done
 . "$SCRIPT_DIR/fm-supervision-lib.sh"
 # shellcheck source=bin/fm-primary-scope-lib.sh
 . "$SCRIPT_DIR/fm-primary-scope-lib.sh"
-# shellcheck source=bin/fm-hook-host-lib.sh
-. "$SCRIPT_DIR/fm-hook-host-lib.sh"
 
 # Read the whole turn-end hook payload once; never block on unreadable/absent
 # stdin.
@@ -132,13 +133,15 @@ PAYLOAD=$(cat 2>/dev/null || true)
 # loop-guard field, so we must never block - fail open, not noisy.
 command -v jq >/dev/null 2>&1 || exit 0
 
-# A Cursor primary also loads the tracked Claude settings, and Cursor's own
-# registration owns its turn boundary through bin/fm-turnend-guard-cursor.sh,
-# which calls this guard back with --cursor. Without that flag a Cursor-delivered
-# payload is the Claude-compatibility duplicate and must not create a second
-# continuation path (docs/turnend-guard.md "Harness integrations").
-if [ "$CURSOR_MODE" -eq 0 ] && fm_hook_payload_is_foreign_host "$PAYLOAD"; then
-  exit 0
+# The native Cursor and Copilot registrations, and Claude's validated
+# compatibility wrapper, pass an explicit mode after establishing their host.
+# Only a legacy/default entry still needs to classify the payload and ancestry
+# here before it may act, which avoids sourcing the process-identity stack twice
+# on every native turn boundary.
+if [ "$CLAUDE_MODE" -eq 0 ] && [ "$CURSOR_MODE" -eq 0 ] && [ "$COPILOT_MODE" -eq 0 ]; then
+  # shellcheck source=bin/fm-hook-host-lib.sh
+  . "$SCRIPT_DIR/fm-hook-host-lib.sh"
+  fm_hook_payload_is_foreign_host "$PAYLOAD" && exit 0
 fi
 
 STOP_HOOK_ACTIVE=$(printf '%s' "$PAYLOAD" | jq -r '
@@ -225,13 +228,25 @@ if [ "$(fm_path_age "$STATE/.last-watcher-beat")" -lt "$AFK_GRACE" ] \
 fi
 
 block_stop() {
-  local afk x_mode reason rule
+  local afk x_mode reason rule repair_harness=
   afk=0
   [ -e "$STATE/.afk" ] && afk=1
   x_mode=0
   [ -f "$CONFIG/x-mode.env" ] && x_mode=1
-  reason=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --afk "$afk" --x-mode "$x_mode" --repair-line 2>/dev/null \
-    || printf '%s\n' 'tasks in flight, no live watcher - repair missing watcher supervision according to the session-start operating block before ending the turn')
+  if [ "$CLAUDE_MODE" -eq 1 ]; then
+    repair_harness=claude
+  elif [ "$COPILOT_MODE" -eq 1 ]; then
+    repair_harness=copilot
+  elif [ "$CURSOR_MODE" -eq 1 ]; then
+    repair_harness=cursor
+  fi
+  if [ -n "$repair_harness" ]; then
+    reason=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --harness "$repair_harness" --afk "$afk" --x-mode "$x_mode" --repair-line 2>/dev/null \
+      || printf '%s\n' 'tasks in flight, no live watcher - repair missing watcher supervision according to the session-start operating block before ending the turn')
+  else
+    reason=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --afk "$afk" --x-mode "$x_mode" --repair-line 2>/dev/null \
+      || printf '%s\n' 'tasks in flight, no live watcher - repair missing watcher supervision according to the session-start operating block before ending the turn')
+  fi
   rule='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
   {
     printf '●%s\n' "$rule"

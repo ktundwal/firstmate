@@ -135,7 +135,7 @@
 #   profile consultation. A --secondmate spawn is exempt and resolves the SECONDMATE
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
 #   secondmate-vs-crewmate split is DURABLE across every respawn (recovery,
-#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy)
+#   /updatefirstmate, restart). A bare adapter name (claude|codex|copilot|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp|agy)
 #   overrides it for this spawn (either kind). A non-flag string containing
 #   whitespace is treated as a RAW launch command - the escape hatch for verifying
 #   new adapters. For pi and pi-signed, fm-spawn resolves the selected executable
@@ -797,7 +797,7 @@ spawn_remote_secondmate() {
     harness=$("$FM_ROOT/bin/fm-harness.sh" secondmate)
   fi
   case "$harness" in
-  claude | codex | opencode | pi | pi-signed | grok | kimi | cursor) ;;
+  claude | codex | copilot | opencode | pi | pi-signed | grok | kimi | cursor) ;;
   *)
     fm_lock_release "$registry_lock" || true
     fm_lock_release "$SPAWN_TASK_LOCK" || true
@@ -1063,6 +1063,8 @@ RELAUNCH_REPLACEMENT_BUSY_GEN=
 RELAUNCH_REPLACEMENT_HARNESS=
 RELAUNCH_REPLACEMENT_STATE=
 RELAUNCH_REPLACEMENT_WT=
+SPAWN_FRESH_COPILOT_HOOK_PENDING=0
+SPAWN_FRESH_COPILOT_HOOK_PATH=
 CONFIG_INHERIT_LOCK=
 CONFIG_INHERIT_LOCK_HELD=0
 
@@ -1118,6 +1120,14 @@ spawn_abort_cleanup() {
         echo "warning: could not retire replacement busy generation after aborted relaunch of $ID" >&2
       fi
     fi
+  fi
+  if [ "$SPAWN_FRESH_COPILOT_HOOK_PENDING" = 1 ]; then
+    SPAWN_FRESH_COPILOT_HOOK_PENDING=0
+    if [ -n "$SPAWN_FRESH_COPILOT_HOOK_PATH" ] \
+       && ! rm -f -- "$SPAWN_FRESH_COPILOT_HOOK_PATH"; then
+      echo "warning: could not remove aborted Copilot worker hook for $ID" >&2
+    fi
+    SPAWN_FRESH_COPILOT_HOOK_PATH=
   fi
   if [ "$HERDR_PROJECTION_ABORT_CLEANUP" = 1 ] &&
     [ "$HERDR_PRESENTATION_ORDER_LOCK_HELD" != 1 ]; then
@@ -1589,7 +1599,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   }
 elif [ "$KIND" = secondmate ]; then
   case "${POS[1]:-}" in
-  '' | claude | codex | opencode | pi | pi-signed | grok | kimi | cursor | gemini | muse | rovo | omp | agy)
+  '' | claude | codex | copilot | opencode | pi | pi-signed | grok | kimi | cursor | gemini | muse | rovo | omp | agy)
     ARG3=${POS[1]:-}
     ;;
   *' '*)
@@ -1776,6 +1786,10 @@ launch_template() {
       printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox --disable hooks -c "notify=[\"bash\",\"-c\",\"touch __TURNEND__\"]" "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
     fi
     ;;
+  # Copilot's interactive flag executes the launch instructions while retaining
+  # the interactive session. The broad allow flags are the unattended-worker
+  # contract; folder trust remains session-only and is handled after launch.
+  copilot) printf '%s' 'env -u CLAUDECODE -u CLAUDE_PROJECT_DIR -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS -u FM_OMP_HARNESS -u GEMINI_CLI -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI -u CURSOR_AGENT -u CURSOR_INVOKED_AS copilot --allow-all --no-ask-user __MODELFLAG____EFFORTFLAG__-i "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
   opencode) printf '%s' 'OPENCODE_CONFIG_CONTENT='\''{"permission":{"*":"allow"}}'\'' opencode __MODELFLAG__--prompt "$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
   pi | pi-signed)
     printf '%s' '__PIBIN____PITUIMODE__'
@@ -2226,7 +2240,7 @@ model_flag_for_harness() {
   local harness=$1 model=$2
   [ -n "$model" ] && [ "$model" != default ] || return 0
   case "$harness" in
-  claude | codex | opencode | pi | pi-signed | grok | kimi | cursor | gemini | muse | rovo | omp | agy)
+  claude | codex | copilot | opencode | pi | pi-signed | grok | kimi | cursor | gemini | muse | rovo | omp | agy)
     printf -- '--model %s ' "$(shell_quote "$model")"
     ;;
   esac
@@ -2251,6 +2265,11 @@ effort_flag_for_harness() {
       [ "$model" = gpt-5.6-luna ] || return 0
       printf -- '-c %s ' "$(shell_quote 'model_reasoning_effort="max"')"
       ;;
+    esac
+    ;;
+  copilot)
+    case "$effort" in
+    low | medium | high | xhigh | max) printf -- '--reasoning-effort %s ' "$(shell_quote "$effort")" ;;
     esac
     ;;
   grok)
@@ -2396,6 +2415,23 @@ rovo_config_override_flag() {
   config_json="{${agent_json}\"toolPermissions\":{\"allowedExternalPaths\":[$paths_json]}}"
   printf -- '--config-override %s ' "$(shell_quote "$config_json")"
 }
+copilot_hook_path_safe() {  # <worktree> <hook-path>
+  local wt=$1 hook=$2 github_dir hooks_dir path
+  github_dir=$wt/.github
+  hooks_dir=$github_dir/hooks
+  for path in "$github_dir" "$hooks_dir"; do
+    [ ! -L "$path" ] || { echo "error: refusing Copilot worker hook because $path is a symlink" >&2; return 1; }
+    if [ -e "$path" ] && [ ! -d "$path" ]; then
+      echo "error: refusing Copilot worker hook because $path exists and is not a directory" >&2
+      return 1
+    fi
+  done
+  if [ -L "$hook" ] || [ -e "$hook" ]; then
+    echo "error: refusing to overwrite existing Firstmate Copilot worker hook $hook for $ID" >&2
+    return 1
+  fi
+}
+
 
 resolved_existing_dir() {
   local path=$1
@@ -3325,6 +3361,72 @@ spawn_send_key() { # <target> <key>
   esac
 }
 
+copilot_capture() {
+  fm_backend_capture "$BACKEND" "$T" 80 "$W"
+}
+
+COPILOT_TRUST_ERROR=
+copilot_trust_dialog_exact() {  # <pane>
+  local pane=$1
+  printf '%s\n' "$pane" | grep -Fq 'Confirm folder trust' || return 1
+  printf '%s\n' "$pane" | grep -Fq 'Do you trust the files in this folder?' || return 1
+  printf '%s\n' "$pane" | grep -Fq '❯ 1. Yes' || return 1
+  printf '%s\n' "$pane" | grep -Fq '2. Yes, and remember this folder for future sessions' || return 1
+  printf '%s\n' "$pane" | grep -Fq '3. No (Esc)' || return 1
+}
+
+copilot_wait_for_session_trust() {
+  local pane i=0 verify=0 max=${FM_COPILOT_TRUST_POLLS:-40}
+  local interval=${FM_COPILOT_TRUST_POLL_INTERVAL:-0.25}
+  while [ "$i" -lt "$max" ]; do
+    if ! pane=$(copilot_capture 2>/dev/null); then
+      COPILOT_TRUST_ERROR="Copilot trust surface could not be read"
+      return 1
+    fi
+    if printf '%s\n' "$pane" | grep -Fq 'Confirm folder trust'; then
+      if ! copilot_trust_dialog_exact "$pane"; then
+        COPILOT_TRUST_ERROR="Copilot trust dialog did not match the verified session-only default selection"
+        return 1
+      fi
+      if ! spawn_send_key "$T" Enter; then
+        COPILOT_TRUST_ERROR="Copilot session-only trust confirmation could not be submitted"
+        return 1
+      fi
+      while [ "$verify" -lt "$max" ]; do
+        if ! pane=$(copilot_capture 2>/dev/null); then
+          COPILOT_TRUST_ERROR="Copilot trust acceptance could not be verified"
+          return 1
+        fi
+        if ! printf '%s\n' "$pane" | grep -Fq 'Confirm folder trust'; then
+          return 0
+        fi
+        verify=$((verify + 1))
+        [ "$verify" -ge "$max" ] || sleep "$interval"
+      done
+      COPILOT_TRUST_ERROR="Copilot trust dialog remained after session-only confirmation"
+      return 1
+    fi
+    i=$((i + 1))
+    [ "$i" -ge "$max" ] || sleep "$interval"
+  done
+  return 0
+}
+
+copilot_endpoint_cleanup() {
+  if [ "$BACKEND" = orca ]; then
+    fm_backend_kill orca "$T" 2>/dev/null || true
+    return 0
+  fi
+  local tab_id=
+  [ "$BACKEND" = zellij ] && tab_id=$ZELLIJ_TAB_ID
+  fm_backend_kill "$BACKEND" "$T" "$tab_id" "$W" 2>/dev/null || true
+}
+
+copilot_spawn_fail() {
+  echo "error: $1; inspect window $T" >&2
+  copilot_endpoint_cleanup
+}
+
 kimi_capture() {
   fm_backend_capture "$BACKEND" "$T" 120 "$W" 2>/dev/null || true
 }
@@ -3653,7 +3755,11 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fi
   [ "$KIND" = secondmate ] || validate_spawn_worktree "relaunch" "$T"
 elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
-  spawn_send_text_line "$WT_TARGET" 'treehouse get'
+  treehouse_get_command='treehouse get'
+  spawn_send_text_line "$WT_TARGET" "$treehouse_get_command" || {
+    echo "error: could not submit Treehouse acquisition to $WT_TARGET" >&2
+    exit 1
+  }
 
   # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
   # Target the stable window id, not the name: if the name is ever lost (e.g. an
@@ -3843,7 +3949,7 @@ if [ "$KIND" != secondmate ]; then
     ;;
   esac
   case "$HARNESS" in
-  claude* | opencode* | pi | pi-signed | omp)
+  claude* | copilot* | opencode* | pi | pi-signed | omp)
     BUSY_GEN=$("$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID") || {
       echo "error: failed to arm the busy-state contract for $ID" >&2
       exit 1
@@ -3926,6 +4032,27 @@ EOF
 {"hooks":{"BeforeAgent":[{"hooks":[{"type":"command","command":"$g_before"}]}],"AfterAgent":[{"hooks":[{"type":"command","command":"$g_after"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"$g_sessionend"}]}]}}
 EOF
     fi
+    ;;
+  copilot*)
+    local_copilot_hook_rel=$(printf '.github/hooks/fm-busy-state-%s.json' "$ID")
+    local_copilot_hook_path=$(fm_control_copilot_hook_path "$WT" "$ID") || {
+      echo "error: could not resolve the Firstmate Copilot worker hook path for $ID" >&2
+      exit 1
+    }
+    copilot_hook_path_safe "$WT" "$local_copilot_hook_path" || exit 1
+    mkdir -p "$WT/.github/hooks"
+    copilot_hook_cmd_prefix="$(shell_quote "$FM_ROOT/bin/fm-copilot-worker-hook.sh") $(shell_quote "$STATE_REAL") $(shell_quote "$ID") $(shell_quote "$BUSY_GEN")"
+    j_submit=$(json_escape "$copilot_hook_cmd_prefix user-prompt-submitted $(shell_quote "$TURNEND") 2>/dev/null || true")
+    j_stop=$(json_escape "$copilot_hook_cmd_prefix agent-stop $(shell_quote "$TURNEND") 2>/dev/null || true")
+    j_sessionend=$(json_escape "$copilot_hook_cmd_prefix session-end $(shell_quote "$TURNEND") 2>/dev/null || true")
+    if [ "$RELAUNCH" -eq 0 ]; then
+      SPAWN_FRESH_COPILOT_HOOK_PENDING=1
+      SPAWN_FRESH_COPILOT_HOOK_PATH=$local_copilot_hook_path
+    fi
+    cat >"$local_copilot_hook_path" <<EOF
+{"version":1,"hooks":{"userPromptSubmitted":[{"type":"command","bash":"$j_submit","timeoutSec":10}],"agentStop":[{"type":"command","bash":"$j_stop","timeoutSec":10}],"sessionEnd":[{"type":"command","bash":"$j_sessionend","timeoutSec":10}]}}
+EOF
+    exclude_path "$local_copilot_hook_rel"
     ;;
   opencode*)
     mkdir -p "$WT/.opencode/plugins"
@@ -4434,8 +4561,13 @@ agy) LAUNCH=${LAUNCH//__AGYBIN__/"$(shell_quote "$AGY_BIN")"} ;;
 esac
 LAUNCH=${LAUNCH//__WORKTREE__/$sq_worktree}
 case "$HARNESS" in
-claude | codex | opencode | pi | pi-signed | grok | kimi | gemini | muse | rovo | agy)
+claude | codex | copilot | opencode | pi | pi-signed | grok | kimi | gemini | muse | rovo | agy)
   LAUNCH="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI $LAUNCH"
+  ;;
+esac
+case "$HARNESS" in
+claude | codex | opencode | pi | pi-signed | grok | kimi | cursor | gemini | muse | rovo | omp | agy)
+  LAUNCH="env -u COPILOT_CLI -u COPILOT_AGENT_SESSION_ID -u COPILOT_LOADER_PID -u COPILOT_CLI_BINARY_VERSION $LAUNCH"
   ;;
 esac
 # Crewmate panes are created by a long-lived tmux/herdr daemon that does not
@@ -4588,6 +4720,14 @@ if [ "${HERDR_PROJECTED:-0}" -eq 1 ]; then
   spawn_herdr_presentation_order_lock_release
 fi
 spawn_send_key "$T" Enter
+case "$HARNESS" in
+  copilot*)
+    if ! copilot_wait_for_session_trust; then
+      copilot_spawn_fail "${COPILOT_TRUST_ERROR:-Copilot trust verification failed}"
+      exit 1
+    fi
+    ;;
+esac
 if [ "$HARNESS" = kimi ]; then
   if ! kimi_wait_for_ready; then
     kimi_spawn_fail "$KIMI_READY_FAILURE_DETAIL"
@@ -4705,6 +4845,8 @@ trap - HUP INT TERM
 if [ "$SPAWN_BACKLOG_COMMIT_STATUS" -ne 0 ]; then
   exit "$SPAWN_BACKLOG_COMMIT_STATUS"
 fi
+SPAWN_FRESH_COPILOT_HOOK_PENDING=0
+SPAWN_FRESH_COPILOT_HOOK_PATH=
 if [ -n "$SPAWN_DEFERRED_SIGNAL" ]; then
   case "$SPAWN_DEFERRED_SIGNAL" in
   HUP) SPAWN_DEFERRED_SIGNAL_STATUS=129 ;;

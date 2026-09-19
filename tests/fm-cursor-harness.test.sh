@@ -182,7 +182,7 @@ test_tmux_classifies_cursor_pane_without_inferring_dead() {
 # Without it the suite would assert against whatever harness actually launched
 # it, and the verdicts below would be about the runner rather than the ordering.
 test_cursor_marker_outranks_inherited_claudecode() {
-  local out fakebin base_path
+  local out fakebin base_path shell
   base_path=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
   fakebin=$(fm_fakebin "$TMP_ROOT/marker-ordering")
   fm_fake_blind_ancestry "$fakebin"
@@ -210,8 +210,10 @@ test_cursor_marker_outranks_inherited_claudecode() {
   local tree_dir
   tree_dir="$TMP_ROOT/marker-ordering-trees"
   mkdir -p "$tree_dir"
-  cp "$(command -v bash)" "$tree_dir/cursor-agent"
-  cp "$(command -v bash)" "$tree_dir/claude"
+  shell=$(command -v bash) || fail "test host must provide bash"
+  printf '#!/usr/bin/env bash\nexec -a %q %q "$@"\n' "$tree_dir/cursor-agent" "$shell" > "$tree_dir/cursor-agent"
+  printf '#!/usr/bin/env bash\nexec -a %q %q "$@"\n' "$tree_dir/claude" "$shell" > "$tree_dir/claude"
+  chmod +x "$tree_dir/cursor-agent" "$tree_dir/claude"
   out=$(env -u CLAUDECODE "$tree_dir/cursor-agent" -c \
     "r=\$(CURSOR_AGENT=1 \"$HARNESS\"); printf '%s' \"\$r\"")
   [ "$out" = cursor ] || fail "a real cursor-agent ancestor must detect cursor, got '$out'"
