@@ -76,7 +76,7 @@ Oh My Pi (`omp`), a Pi fork, is verified as a primary with the same extension-ow
 Codex and OpenCode are also verified and supported as primary harnesses; Codex uses bounded foreground checkpoints, and OpenCode uses a TUI plugin, so both carry more harness-specific supervision tradeoffs than the three co-primaries.
 Cursor Agent CLI is verified as a primary too, using a tracked project-scope `.cursor/hooks.json` whose `stop` hook parks on the watcher between turns, closest in shape to Claude Code's.
 Launch it with `--trust`, or none of its project hooks load; it also has no turn-end hook in headless `cursor-agent -p`, so run the primary session interactively.
-GitHub Copilot CLI is verified as a primary, worker, and secondmate harness with repository hooks, session-only folder trust for spawned workers, and attached asynchronous watcher supervision.
+GitHub Copilot CLI is verified as a primary, worker, and local secondmate harness with repository hooks, session-only folder trust for spawned workers, and attached asynchronous watcher supervision.
 
 ### Install and launch
 

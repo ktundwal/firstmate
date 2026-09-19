@@ -313,9 +313,9 @@ The full cmux home label also includes a short hash of the resolved `FM_ROOT` pa
 
 ## Harness support
 
-claude, codex, copilot, opencode, pi, pi-signed, grok, kimi, cursor, and omp are empirically verified for crewmate and secondmate launches; gemini is verified for crewmate and scout launches only, and [README requirements](../README.md#requirements) own the set supported for the primary session.
+claude, codex, copilot, opencode, pi, pi-signed, grok, kimi, cursor, and omp are empirically verified for crewmate and local secondmate launches; gemini is verified for crewmate and scout launches only, and [README requirements](../README.md#requirements) own the set supported for the primary session.
 `fm-spawn.sh` refuses kimi on cmux and Orca at preflight, because answering Kimi's folder-trust dialog needs a verified viewport-only capture those backends lack; [its adapter reference](../.agents/skills/harness-adapters/references/harness/kimi.md#readiness-gated-start) owns the trust-dialog handling.
-A Copilot secondmate or primary uses tracked `.github/hooks/fm-primary.json` for session start, command and delegation protections, the turn-end backstop, and watcher completion notifications.
+A local Copilot secondmate or primary uses tracked `.github/hooks/fm-primary.json` for session start, command and delegation protections, the turn-end backstop, and watcher completion notifications.
 A first interactive Copilot session may prompt to trust the repository before those hooks and project instructions load; worker spawning accepts only the session-only default choice and verifies that the dialog clears.
 The [runtime verification record](verification/runtime-backends.md#copilot-cli-1086-2-composer-and-liveness-2026-09-17) owns the current platform evidence and limitations.
 A cursor secondmate or primary runs the tracked project-scope `.cursor/hooks.json` in its own home and must be launched with `--trust`, or no project hook loads; [`docs/supervision-protocols/cursor.md`](supervision-protocols/cursor.md) owns its supervision protocol.
