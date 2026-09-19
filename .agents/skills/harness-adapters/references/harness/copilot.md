@@ -33,7 +33,8 @@ Tmux normally reports `copilot` through `#{pane_current_command}` even when the 
 
 ## Worker hooks
 
-Native Windows and remote workers are not verified and are outside this adapter's supported boundary.
+Native Windows Copilot support is experimental and uses Git Bash plus PowerShell for tracked primary and generated worker hooks, generation-bound process ownership, and private ACL validation.
+Remote Copilot workers and remote Copilot secondmates remain unverified and outside this adapter's supported boundary.
 
 `../../../bin/fm-spawn.sh` writes `.github/hooks/fm-busy-state-<task-id>.json` into a crew or scout worktree and excludes it from git.
 That install refuses symlinked or non-directory `.github` path components and any pre-existing destination, so a repository cannot redirect or reuse Firstmate's generated worker hook.
@@ -47,6 +48,7 @@ Their own primary behavior comes from the tracked repository hook below.
 
 Tracked `.github/hooks/fm-primary.json` owns Copilot's primary integration.
 Every entry routes through `../../../bin/fm-copilot-hook.sh`, which exits unless the actual host process ancestry is Copilot so non-Copilot runtimes and Copilot cloud-agent jobs remain inert.
+On native Windows, each entry uses `../../../bin/fm-claude-hook-launch.ps1` to locate Git Bash from Git for Windows and preserve the adapter's stdin, stdout, and exit status.
 Its native `sessionStart` hook runs the full session-start adapter and returns the digest as `additionalContext`.
 Its `preToolUse` hooks apply the watcher-arm, persistent-directory-change, and built-in-delegation protections through the shared policy scripts.
 Its `agentStop` hook translates the shared turn-end guard's exit-2 refusal into Copilot's native `decision: "block"` continuation.

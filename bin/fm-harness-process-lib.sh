@@ -6,10 +6,18 @@
 # tmux liveness/composer identity, and session-lock ancestry.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-fm_session_pid_valid() {
-  case "${1:-}" in ''|*[!0-9]*) return 1 ;; esac
-  [ "$1" -gt 0 ]
-}
+if [ -f "$SCRIPT_DIR/fm-windows-process-lib.sh" ]; then
+  # shellcheck source=bin/fm-windows-process-lib.sh
+  . "$SCRIPT_DIR/fm-windows-process-lib.sh"
+else
+  fm_session_pid_valid() {
+    case "${1:-}" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$1" -gt 0 ]
+  }
+  fm_windows_normalize_command() {
+    printf '%s\n' "$1"
+  }
+fi
 
 # Cursor process identity is structurally narrower than the generic harness-name
 # table. Source its owner when present; hermetic fixture roots that do not copy
@@ -113,6 +121,9 @@ fm_harness_set_match_name() {  # <name>
 
 fm_harness_process_matches_name_surfaces() {  # <comm> <args>
   local comm=$1 args=$2 base argv0 argv0_base name
+  if [ -r "/proc/$$/winpid" ]; then
+    comm=$(fm_windows_normalize_command "$comm")
+  fi
   args=$(fm_harness_normalize_args "$args")
   base=$(basename -- "$comm")
   if printf '%s' "$base" | grep -qE "$FM_HARNESS_RE"; then
@@ -227,6 +238,10 @@ fm_harness_process_name() {  # <comm> <args>
 # contiguous verified-harness ancestry, innermost pid first.
 fm_harness_ancestry_pids() {
   local pid=$$ comm args extending=0 printed=0
+  if [ -r "/proc/$$/winpid" ] && [ "${COPILOT_CLI:-}" = 1 ] && [ -n "${COPILOT_LOADER_PID:-}" ]; then
+    fm_windows_copilot_identity
+    return $?
+  fi
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
     comm=$(ps -o comm= -p "$pid" 2>/dev/null) || break
     args=$(ps -o args= -p "$pid" 2>/dev/null)
@@ -271,6 +286,7 @@ fm_harness_ancestry_pid() {
 fm_harness_pid_alive() {
   local pid=$1 comm args
   case "$pid" in
+    win:*) fm_windows_harness_alive "$pid"; return $? ;;
     ''|*[!0-9]*) return 1 ;;
   esac
   kill -0 "$pid" 2>/dev/null || return 1

@@ -8,24 +8,27 @@
             "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; ROOT=${CLAUDE_PROJECT_DIR:-$(git -C \"$(pwd -P 2>/dev/null || pwd)\" rev-parse --show-toplevel 2>/dev/null)}; [ -x \"$ROOT/bin/fm-claude-compat-hook.sh\" ] || exit 0; exec \"$ROOT/bin/fm-claude-compat-hook.sh\" fm-sessionstart-run.sh",
             "timeout": 180,
             "cwd": ".",
-            "timeoutSec": 180
+            "timeoutSec": 180,
+            "powershell": "& ./bin/fm-claude-hook-launch.ps1 -Script fm-claude-compat-hook.sh -SkipIfGrok fm-sessionstart-run.sh; exit $LASTEXITCODE"
           }
         ]
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "^(Bash|powershell)$",
         "hooks": [
           {
             "type": "command",
             "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; ROOT=${CLAUDE_PROJECT_DIR:-$(git -C \"$(pwd -P 2>/dev/null || pwd)\" rev-parse --show-toplevel 2>/dev/null)}; [ -x \"$ROOT/bin/fm-claude-compat-hook.sh\" ] || exit 0; exec \"$ROOT/bin/fm-claude-compat-hook.sh\" fm-arm-pretool-check.sh --claude",
-            "cwd": "."
+            "cwd": ".",
+            "powershell": "& ./bin/fm-claude-hook-launch.ps1 -Script fm-claude-compat-hook.sh -SkipIfGrok fm-arm-pretool-check.sh --claude; exit $LASTEXITCODE"
           },
           {
             "type": "command",
             "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; ROOT=${CLAUDE_PROJECT_DIR:-$(git -C \"$(pwd -P 2>/dev/null || pwd)\" rev-parse --show-toplevel 2>/dev/null)}; [ -x \"$ROOT/bin/fm-claude-compat-hook.sh\" ] || exit 0; exec \"$ROOT/bin/fm-claude-compat-hook.sh\" fm-cd-pretool-check.sh --claude",
-            "cwd": "."
+            "cwd": ".",
+            "powershell": "& ./bin/fm-claude-hook-launch.ps1 -Script fm-claude-compat-hook.sh -SkipIfGrok fm-cd-pretool-check.sh --claude; exit $LASTEXITCODE"
           }
         ]
       },
@@ -35,7 +38,8 @@
           {
             "type": "command",
             "command": "ROOT=${CLAUDE_PROJECT_DIR:-$(git -C \"$(pwd -P 2>/dev/null || pwd)\" rev-parse --show-toplevel 2>/dev/null)}; [ -x \"$ROOT/bin/fm-claude-compat-hook.sh\" ] || exit 0; exec \"$ROOT/bin/fm-claude-compat-hook.sh\" fm-subagent-pretool-check.sh --claude",
-            "cwd": "."
+            "cwd": ".",
+            "powershell": "& ./bin/fm-claude-hook-launch.ps1 -Script fm-claude-compat-hook.sh fm-subagent-pretool-check.sh --claude; exit $LASTEXITCODE"
           }
         ]
       }
@@ -46,7 +50,8 @@
           {
             "type": "command",
             "command": "[ -z \"${GROK_AGENT:-}${GROK_HOOK_EVENT:-}\" ] || exit 0; ROOT=${CLAUDE_PROJECT_DIR:-$(git -C \"$(pwd -P 2>/dev/null || pwd)\" rev-parse --show-toplevel 2>/dev/null)}; [ -x \"$ROOT/bin/fm-claude-compat-hook.sh\" ] || exit 0; exec \"$ROOT/bin/fm-claude-compat-hook.sh\" fm-turnend-guard.sh --claude",
-            "cwd": "."
+            "cwd": ".",
+            "powershell": "& ./bin/fm-claude-hook-launch.ps1 -Script fm-claude-compat-hook.sh -SkipIfGrok fm-turnend-guard.sh --claude; exit $LASTEXITCODE"
           },
           {
             "type": "command",
@@ -54,7 +59,8 @@
             "asyncRewake": true,
             "timeout": 28800,
             "cwd": ".",
-            "timeoutSec": 28800
+            "timeoutSec": 28800,
+            "powershell": "& ./bin/fm-claude-hook-launch.ps1 -Script fm-claude-compat-hook.sh -SkipIfGrok fm-claude-stop-autoarm.sh; exit $LASTEXITCODE"
           }
         ]
       }

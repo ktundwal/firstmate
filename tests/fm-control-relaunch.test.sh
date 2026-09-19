@@ -345,6 +345,31 @@ test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint() {
   pass "fm-control relaunch: a same-harness relaunch replaces the agent in the same endpoint and worktree"
 }
 
+test_local_copilot_relaunch_keeps_endpoint_and_worker_hooks() {
+  local dir out rc hook
+  dir=$(new_case local-copilot-relaunch rl46)
+  add_ship_task "$dir" rl46 copilot
+  printf 'copilot' > "$dir/fake/command"
+  printf 'copilot' > "$dir/fake/becomes"
+
+  out=$(run_control "$dir" rl46 relaunch --note "continue in Copilot"); rc=$?
+
+  expect_code 0 "$rc" "an idle local Copilot relaunch should succeed"$'\n'"$out"
+  assert_contains "$out" "relaunched rl46 harness=copilot from=copilot" \
+    "the outcome should preserve the Copilot harness"
+  [ "$(meta_field "$dir" rl46 window)" = "fmses:fm-rl46" ] \
+    || fail "the local Copilot relaunch must reuse its endpoint"
+  [ "$(meta_field "$dir" rl46 worktree)" = "$dir/wt" ] \
+    || fail "the local Copilot relaunch must reuse its worktree"
+  hook="$dir/wt/.github/hooks/fm-busy-state-rl46.json"
+  assert_present "$hook" "the local Copilot replacement must install its worker hook"
+  assert_absent "$dir/wt/.github/hooks/fm-primary.json" \
+    "a Copilot worker relaunch must not install primary hooks"
+  assert_present "$dir/home/state/rl46.busy-gen" \
+    "the local Copilot replacement must arm worker-only busy state"
+  pass "fm-control relaunch: local Copilot reuses its endpoint and worker-only hooks"
+}
+
 test_busy_copilot_relaunch_refuses_without_input() {
   local dir out rc gen before_meta before_busy
   dir=$(new_case copilot-busy-relaunch rl45)
@@ -1733,6 +1758,7 @@ test_relaunch_moves_a_drifted_item_back_in_flight() {
 }
 
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
+test_local_copilot_relaunch_keeps_endpoint_and_worker_hooks
 test_busy_copilot_relaunch_refuses_without_input
 test_relaunch_refuses_before_exit_when_the_composer_holds_pending_text
 test_relaunch_refuses_before_exit_when_the_composer_state_is_unproven

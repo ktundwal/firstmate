@@ -44,8 +44,10 @@ EOF
 cp "$ROOT/.github/hooks/fm-primary.json" "$REPO/.github/hooks/fm-primary.json"
 
 cp "$ROOT/bin/fm-copilot-hook.sh" "$REPO/bin/fm-copilot-hook-real.sh"
-cp "$ROOT/bin/fm-copilot-watcher-receipt-lib.sh" "$ROOT/bin/fm-hook-host-lib.sh" \
-   "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-session-lock-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" \
+cp "$ROOT/bin/fm-copilot-watcher-receipt-lib.sh" "$ROOT/bin/fm-private-path-lib.sh" \
+   "$ROOT/bin/fm-windows-private-path.ps1" "$ROOT/bin/fm-hook-host-lib.sh" \
+   "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-windows-process-lib.sh" \
+   "$ROOT/bin/fm-windows-process.ps1" "$ROOT/bin/fm-session-lock-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" \
    "$ROOT/bin/fm-primary-scope-lib.sh" "$ROOT/bin/fm-operational-input.sh" \
    "$ROOT/bin/fm-arm-pretool-check.sh" "$ROOT/bin/fm-arm-command-policy.mjs" \
    "$REPO/bin/"

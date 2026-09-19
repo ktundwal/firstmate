@@ -605,6 +605,11 @@ test_copilot_threads_launch_hooks_and_completion() {
   assert_contains "$launch" "encode launch-brief" "copilot launch lost the typed launch instructions"
   hooks="$WT_DIR/.github/hooks/fm-busy-state-$id.json"
   assert_present "$hooks" "copilot spawn did not install the worker lifecycle hook"
+  if [ -r "/proc/$$/winpid" ]; then
+    jq -e '[.hooks[][] | select((.powershell // "") | contains("fm-claude-hook-launch.ps1"))] | length == 3' \
+      "$hooks" >/dev/null \
+      || fail "native Windows Copilot worker hooks did not expose PowerShell commands"
+  fi
   assert_present "$HOME_DIR/state/$id.busy-gen" "copilot crew spawn did not arm the busy-state contract"
   hook_cmd=$(jq -r '.hooks.userPromptSubmitted[0].bash' "$hooks")
   printf '%s' '{"sessionId":"parent"}' | sh -c "$hook_cmd" || fail "copilot userPromptSubmitted worker hook failed"

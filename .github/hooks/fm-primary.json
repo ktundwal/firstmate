@@ -5,6 +5,7 @@
       {
         "type": "command",
         "bash": "./bin/fm-copilot-hook.sh session-start",
+        "powershell": "& ./bin/fm-claude-hook-launch.ps1 -Script fm-copilot-hook.sh session-start; exit $LASTEXITCODE",
         "cwd": ".",
         "timeoutSec": 180
       }
@@ -12,15 +13,17 @@
     "preToolUse": [
       {
         "type": "command",
-        "matcher": "^bash$",
+        "matcher": "^(bash|powershell)$",
         "bash": "./bin/fm-copilot-hook.sh pretool-arm",
+        "powershell": "& ./bin/fm-claude-hook-launch.ps1 -Script fm-copilot-hook.sh pretool-arm; exit $LASTEXITCODE",
         "cwd": ".",
         "timeoutSec": 10
       },
       {
         "type": "command",
-        "matcher": "^bash$",
+        "matcher": "^(bash|powershell)$",
         "bash": "./bin/fm-copilot-hook.sh pretool-cd",
+        "powershell": "& ./bin/fm-claude-hook-launch.ps1 -Script fm-copilot-hook.sh pretool-cd; exit $LASTEXITCODE",
         "cwd": ".",
         "timeoutSec": 10
       },
@@ -28,6 +31,7 @@
         "type": "command",
         "matcher": ".*",
         "bash": "./bin/fm-copilot-hook.sh pretool-subagent",
+        "powershell": "& ./bin/fm-claude-hook-launch.ps1 -Script fm-copilot-hook.sh pretool-subagent; exit $LASTEXITCODE",
         "cwd": ".",
         "timeoutSec": 10
       }
@@ -36,6 +40,7 @@
       {
         "type": "command",
         "bash": "./bin/fm-copilot-hook.sh agent-stop",
+        "powershell": "& ./bin/fm-claude-hook-launch.ps1 -Script fm-copilot-hook.sh agent-stop; exit $LASTEXITCODE",
         "cwd": ".",
         "timeoutSec": 30
       }
@@ -45,6 +50,7 @@
         "type": "command",
         "matcher": "shell_completed",
         "bash": "./bin/fm-copilot-hook.sh notification",
+        "powershell": "& ./bin/fm-claude-hook-launch.ps1 -Script fm-copilot-hook.sh notification; exit $LASTEXITCODE",
         "cwd": ".",
         "timeoutSec": 30
       }

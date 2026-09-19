@@ -4045,12 +4045,22 @@ EOF
     j_submit=$(json_escape "$copilot_hook_cmd_prefix user-prompt-submitted $(shell_quote "$TURNEND") 2>/dev/null || true")
     j_stop=$(json_escape "$copilot_hook_cmd_prefix agent-stop $(shell_quote "$TURNEND") 2>/dev/null || true")
     j_sessionend=$(json_escape "$copilot_hook_cmd_prefix session-end $(shell_quote "$TURNEND") 2>/dev/null || true")
+    copilot_ps_submit=
+    copilot_ps_stop=
+    copilot_ps_end=
+    if [ -r "/proc/$$/winpid" ]; then
+      copilot_ps_launcher=$(cygpath -w "$FM_ROOT/bin/fm-claude-hook-launch.ps1") || exit 1
+      copilot_ps_prefix="& '${copilot_ps_launcher//\'/\'\'}' -Script fm-copilot-worker-hook.sh '${STATE_REAL//\'/\'\'}' '${ID//\'/\'\'}' '${BUSY_GEN//\'/\'\'}'"
+      copilot_ps_submit=",\"powershell\":\"$(json_escape "$copilot_ps_prefix user-prompt-submitted '${TURNEND//\'/\'\'}'; exit \$LASTEXITCODE")\""
+      copilot_ps_stop=",\"powershell\":\"$(json_escape "$copilot_ps_prefix agent-stop '${TURNEND//\'/\'\'}'; exit \$LASTEXITCODE")\""
+      copilot_ps_end=",\"powershell\":\"$(json_escape "$copilot_ps_prefix session-end '${TURNEND//\'/\'\'}'; exit \$LASTEXITCODE")\""
+    fi
     if [ "$RELAUNCH" -eq 0 ]; then
       SPAWN_FRESH_COPILOT_HOOK_PENDING=1
       SPAWN_FRESH_COPILOT_HOOK_PATH=$local_copilot_hook_path
     fi
     cat >"$local_copilot_hook_path" <<EOF
-{"version":1,"hooks":{"userPromptSubmitted":[{"type":"command","bash":"$j_submit","timeoutSec":10}],"agentStop":[{"type":"command","bash":"$j_stop","timeoutSec":10}],"sessionEnd":[{"type":"command","bash":"$j_sessionend","timeoutSec":10}]}}
+{"version":1,"hooks":{"userPromptSubmitted":[{"type":"command","bash":"$j_submit"$copilot_ps_submit,"timeoutSec":10}],"agentStop":[{"type":"command","bash":"$j_stop"$copilot_ps_stop,"timeoutSec":10}],"sessionEnd":[{"type":"command","bash":"$j_sessionend"$copilot_ps_end,"timeoutSec":10}]}}
 EOF
     exclude_path "$local_copilot_hook_rel"
     ;;

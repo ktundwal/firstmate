@@ -431,7 +431,10 @@ test_session_lock_identity_matches_copilot() {
 make_hook_fixture() {
   local dir=$1 guard_status=${2:-0}
   mkdir -p "$dir/bin"
-  cp "$HOOK" "$WATCH_RECEIPT_LIB" "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-session-lock-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" "$ROOT/bin/fm-primary-scope-lib.sh" "$dir/bin/"
+  cp "$HOOK" "$WATCH_RECEIPT_LIB" "$ROOT/bin/fm-private-path-lib.sh" "$ROOT/bin/fm-windows-private-path.ps1" \
+    "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-windows-process-lib.sh" \
+    "$ROOT/bin/fm-windows-process.ps1" "$ROOT/bin/fm-session-lock-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" \
+    "$ROOT/bin/fm-primary-scope-lib.sh" "$dir/bin/"
   chmod +x "$dir/bin/fm-copilot-hook.sh"
   cat > "$dir/bin/fm-sessionstart-run.sh" <<'SH'
 #!/usr/bin/env bash
@@ -558,7 +561,9 @@ make_claude_compat_fixture() {
   mkdir -p "$dir/bin" "$dir/.claude"
   git -C "$dir" init -q
   : > "$dir/AGENTS.md"
-  cp "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-session-lock-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" "$ROOT/bin/fm-claude-compat-hook.sh" "$dir/bin/"
+  cp "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-windows-process-lib.sh" \
+    "$ROOT/bin/fm-windows-process.ps1" "$ROOT/bin/fm-session-lock-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" \
+    "$ROOT/bin/fm-claude-compat-hook.sh" "$dir/bin/"
   cp "$ROOT/.claude/settings.json" "$dir/.claude/settings.json"
   cat > "$dir/bin/fm-sessionstart-run.sh" <<'SH'
 #!/usr/bin/env bash
@@ -744,7 +749,9 @@ make_notification_fixture() {
   mkdir -p "$dir/bin" "$dir/state"
   git -C "$dir" init -q
   : > "$dir/AGENTS.md"
-  cp "$HOOK" "$WATCH_RECEIPT_LIB" "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-session-lock-lib.sh" \
+  cp "$HOOK" "$WATCH_RECEIPT_LIB" "$ROOT/bin/fm-private-path-lib.sh" "$ROOT/bin/fm-windows-private-path.ps1" \
+     "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-windows-process-lib.sh" \
+     "$ROOT/bin/fm-windows-process.ps1" "$ROOT/bin/fm-session-lock-lib.sh" \
      "$ROOT/bin/fm-cursor-lib.sh" "$ROOT/bin/fm-primary-scope-lib.sh" \
      "$ROOT/bin/fm-operational-input.sh" "$ROOT/bin/fm-arm-command-policy.mjs" "$dir/bin/"
   cat > "$dir/bin/fm-turnend-guard.sh" <<'SH'
@@ -927,7 +934,9 @@ test_notification_requires_primary_scope() {
   fakebin="$dir/fakebin"
   mkdir -p "$dir/bin"
   make_ps "$fakebin"
-  cp "$HOOK" "$WATCH_RECEIPT_LIB" "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-session-lock-lib.sh" \
+  cp "$HOOK" "$WATCH_RECEIPT_LIB" "$ROOT/bin/fm-private-path-lib.sh" "$ROOT/bin/fm-windows-private-path.ps1" \
+     "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-windows-process-lib.sh" \
+     "$ROOT/bin/fm-windows-process.ps1" "$ROOT/bin/fm-session-lock-lib.sh" \
      "$ROOT/bin/fm-cursor-lib.sh" "$ROOT/bin/fm-primary-scope-lib.sh" \
      "$ROOT/bin/fm-operational-input.sh" "$ROOT/bin/fm-arm-command-policy.mjs" "$dir/bin/"
   chmod +x "$dir/bin/fm-copilot-hook.sh" "$dir/bin/fm-operational-input.sh"

@@ -1,19 +1,7 @@
 #!/usr/bin/env bash
 
-fm_copilot_watch_private_path_matches() {  # <path> <file|directory>
-  local path=$1 kind=$2 expected mode
-  case "$kind" in
-    file) expected=600 ;;
-    directory) expected=700 ;;
-    *) return 2 ;;
-  esac
-  if [ "$_FM_COPILOT_WATCH_RECEIPT_UNAME" = Darwin ]; then
-    mode=$(stat -f %Lp "$path") || return 1
-  else
-    mode=$(stat -c %a "$path") || return 1
-  fi
-  [ "$mode" = "$expected" ]
-}
+# shellcheck source=bin/fm-private-path-lib.sh
+. "$(dirname -- "${BASH_SOURCE[0]}")/fm-private-path-lib.sh"
 
 FM_COPILOT_WATCH_RECEIPT_SCHEMA=${FM_COPILOT_WATCH_RECEIPT_SCHEMA:-fm-copilot-watch-arm-receipt.v1}
 _FM_COPILOT_WATCH_RECEIPT_UNAME=${_FM_COPILOT_WATCH_RECEIPT_UNAME:-$(uname 2>/dev/null || echo unknown)}
@@ -62,7 +50,7 @@ fm_copilot_watch_receipt_prepare_dir() {
   fi
   [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
   chmod 700 "$dir" 2>/dev/null || return 1
-  fm_copilot_watch_private_path_matches "$dir" directory || return 1
+  fm_private_data_path_matches "$dir" directory || return 1
   printf '%s\n' "$dir"
 }
 
@@ -79,7 +67,7 @@ fm_copilot_watch_receipt_publish() {
     rm -f -- "$tmp"
     return 1
   }
-  fm_copilot_watch_private_path_matches "$tmp" file || {
+  fm_private_data_path_matches "$tmp" file || {
     rm -f -- "$tmp"
     return 1
   }
@@ -104,7 +92,7 @@ fm_copilot_watch_receipt_publish() {
     rm -f -- "$receipt"
     return 1
   }
-  fm_copilot_watch_private_path_matches "$receipt" file || {
+  fm_private_data_path_matches "$receipt" file || {
     rm -f -- "$receipt"
     return 1
   }
@@ -115,7 +103,7 @@ fm_copilot_watch_receipt_validate_claimed() {
   local state_device max_age size line key value schema='' completed_at='' receipt_root='' receipt_home=''
   local seen_schema=0 seen_completed=0 seen_root=0 seen_home=0 age
   [ -f "$claimed" ] && [ ! -L "$claimed" ] || return 1
-  fm_copilot_watch_private_path_matches "$claimed" file || return 1
+  fm_private_data_path_matches "$claimed" file || return 1
   [ "$(fm_copilot_watch_receipt_links "$claimed")" = 1 ] || return 1
   state_device=$(fm_copilot_watch_receipt_device "$state_real") || return 1
   [ "$(fm_copilot_watch_receipt_device "$claimed")" = "$state_device" ] || return 1
@@ -168,7 +156,7 @@ fm_copilot_watch_receipt_claim() {
   state_real=$(fm_copilot_watch_receipt_real_dir "$3") || return 1
   dir="$state_real/.copilot-watch-arm"
   [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
-  fm_copilot_watch_private_path_matches "$dir" directory || return 1
+  fm_private_data_path_matches "$dir" directory || return 1
   receipt=$(fm_copilot_watch_receipt_path "$state_real") || return 1
   [ -f "$receipt" ] && [ ! -L "$receipt" ] || return 1
   while :; do
@@ -201,10 +189,10 @@ fm_copilot_watch_pending_publish() {  # <state-dir> <encoded-context>
   tmp=$(mktemp "$dir/.pending-context.XXXXXX") || return 1
   chmod 600 "$tmp" 2>/dev/null || { rm -f -- "$tmp"; return 1; }
   printf '%s' "$text" > "$tmp" || { rm -f -- "$tmp"; return 1; }
-  fm_copilot_watch_private_path_matches "$tmp" file || { rm -f -- "$tmp"; return 1; }
+  fm_private_data_path_matches "$tmp" file || { rm -f -- "$tmp"; return 1; }
   mv -f -- "$tmp" "$pending" || { rm -f -- "$tmp"; return 1; }
   chmod 600 "$pending" 2>/dev/null || { rm -f -- "$pending"; return 1; }
-  fm_copilot_watch_private_path_matches "$pending" file
+  fm_private_data_path_matches "$pending" file
 }
 
 fm_copilot_watch_pending_claim() {  # <state-dir>
@@ -212,13 +200,13 @@ fm_copilot_watch_pending_claim() {  # <state-dir>
   state_real=$(fm_copilot_watch_receipt_real_dir "$1") || return 1
   dir="$state_real/.copilot-watch-arm"
   [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
-  fm_copilot_watch_private_path_matches "$dir" directory || return 1
+  fm_private_data_path_matches "$dir" directory || return 1
   pending=$(fm_copilot_watch_pending_path "$state_real") || return 1
   [ -f "$pending" ] && [ ! -L "$pending" ] || return 1
   claimed="$dir/.pending-claimed.$$.$RANDOM"
   mv -- "$pending" "$claimed" 2>/dev/null || return 1
   if [ -f "$claimed" ] && [ ! -L "$claimed" ] \
-     && fm_copilot_watch_private_path_matches "$claimed" file \
+     && fm_private_data_path_matches "$claimed" file \
      && [ "$(fm_copilot_watch_receipt_links "$claimed")" = 1 ]; then
     size=$(wc -c < "$claimed" 2>/dev/null | tr -d '[:space:]') || size=
     case "$size" in ''|*[!0-9]*) ;; *) [ "$size" -le 8192 ] && cat "$claimed" && rc=0 ;; esac

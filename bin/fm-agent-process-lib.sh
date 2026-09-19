@@ -26,6 +26,10 @@
 # about what a given name means.
 fm_agent_process_classify_name() {  # <path> [argv0] -> agent|shell|other
   local path=$1 argv0=${2:-} base
+  if [ -r "/proc/$$/winpid" ]; then
+    path=$(fm_windows_normalize_command "$path")
+    argv0=$(fm_windows_normalize_command "$argv0")
+  fi
   base=${path##*/}
   base=${base#-}
   case "$base" in
