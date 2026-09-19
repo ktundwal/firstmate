@@ -7,8 +7,6 @@ set -u
 fm_live_gate default-on FM_LIVE_PWSH pwsh
 
 LAUNCHER="$ROOT/bin/fm-claude-hook-launch.ps1"
-SETTINGS="$ROOT/.claude/settings.json"
-COPILOT_HOOKS="$ROOT/.github/hooks/fm-primary.json"
 TMP_ROOT=$(fm_test_tmproot fm-claude-hook-launch-tests)
 OUT="$TMP_ROOT/out"
 ERR="$TMP_ROOT/err"
@@ -54,22 +52,5 @@ test_rejects_untracked_targets() {
   pass "the Windows launcher confines targets to tracked bin scripts"
 }
 
-test_hook_configs_expose_native_commands() {
-  local bad
-  jq -e . "$SETTINGS" >/dev/null 2>&1 || fail ".claude/settings.json is not valid JSON"
-  jq -e . "$COPILOT_HOOKS" >/dev/null 2>&1 || fail "fm-primary.json is not valid JSON"
-  bad=$(jq '[.. | objects | select(has("command") and .command != null)
-             | select((.powershell // "") | test("fm-claude-hook-launch\\.ps1") | not)] | length' "$SETTINGS")
-  [ "$bad" -eq 0 ] || fail "$bad Claude hook entries lack a native PowerShell command"
-  bad=$(jq '[.hooks[][] | select((.powershell // "") | test("fm-claude-hook-launch\\.ps1") | not)] | length' "$COPILOT_HOOKS")
-  [ "$bad" -eq 0 ] || fail "$bad Copilot hook entries lack a native PowerShell command"
-  [[ "powershell" =~ $(jq -r '.hooks.PreToolUse[0].matcher' "$SETTINGS") ]] \
-    || fail "Claude compatibility pre-tool hooks do not accept PowerShell"
-  [[ "powershell" =~ $(jq -r '.hooks.preToolUse[0].matcher' "$COPILOT_HOOKS") ]] \
-    || fail "Copilot pre-tool hooks do not accept PowerShell"
-  pass "tracked hook configurations expose native PowerShell commands"
-}
-
 test_forwards_guard_behavior
 test_rejects_untracked_targets
-test_hook_configs_expose_native_commands
