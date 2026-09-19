@@ -632,6 +632,7 @@ LOCK_OUT=$("$SCRIPT_DIR/fm-lock.sh" 2>&1)
 LOCK_RC=$?
 printf '%s\n' "$LOCK_OUT"
 READ_ONLY=0
+ACQUIRED_LOCK_IDENTITY=
 if [ "$LOCK_RC" -ne 0 ]; then
   READ_ONLY=1
   BAR='●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
@@ -647,6 +648,9 @@ if [ "$LOCK_RC" -ne 0 ]; then
     printf '●  otherwise mutate fleet state from this session.\n'
     printf '%s\n' "$BAR"
   }
+else
+  ACQUIRED_LOCK_IDENTITY=$(cat "$STATE/.lock" 2>/dev/null || true)
+  fm_session_pid_valid "$ACQUIRED_LOCK_IDENTITY" || ACQUIRED_LOCK_IDENTITY=
 fi
 REBUILDING_SESSION_PID=$(fm_harness_ancestry_pid 2>/dev/null || true)
 print_agents_refresh_if_required "$REBUILDING_SESSION_PID"
@@ -999,7 +1003,9 @@ if [ "$READ_ONLY" -eq 0 ] && [ "$REEMIT" -eq 0 ]; then
   COMPLETION_PID=$(cat "$STATE/.lock" 2>/dev/null || true)
   fm_session_pid_valid "$COMPLETION_PID" || COMPLETION_PID=
   COMPLETION_TMP=$(mktemp "$STATE/.session-start-complete.XXXXXX" 2>/dev/null || true)
-  if [ -n "$COMPLETION_PID" ] && [ -n "$COMPLETION_TMP" ] \
+  if [ -f "$STATE/.lock" ] && [ ! -L "$STATE/.lock" ] \
+    && [ -n "$ACQUIRED_LOCK_IDENTITY" ] && [ "$COMPLETION_PID" = "$ACQUIRED_LOCK_IDENTITY" ] \
+    && [ -n "$COMPLETION_TMP" ] \
     && printf '%s\n' "$COMPLETION_PID" > "$COMPLETION_TMP" 2>/dev/null \
     && mv -f "$COMPLETION_TMP" "$COMPLETION_FILE" 2>/dev/null; then
     COMPLETION_RECORDED=1
