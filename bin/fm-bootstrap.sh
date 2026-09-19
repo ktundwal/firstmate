@@ -175,6 +175,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-quota-axi-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-control-lib.sh"
+# shellcheck source=bin/fm-harness-process-lib.sh disable=SC1091
+. "$SCRIPT_DIR/fm-harness-process-lib.sh"
 # shellcheck source=bin/fm-env-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-env-lib.sh"
 # shellcheck source=bin/fm-tangle-lib.sh disable=SC1091
@@ -213,7 +215,7 @@ network_phase() { [ "$FM_BOOTSTRAP_NETWORK_PHASE" != skip ]; }
 network_mutation_authorized() {
   local expected=${FM_BOOTSTRAP_NETWORK_LOCK_PID:-} current
   [ -n "$expected" ] || return 0
-  case "$expected" in *[!0-9]*) return 1 ;; esac
+  fm_session_pid_valid "$expected" || return 1
   [ -f "$STATE/.lock" ] && [ ! -L "$STATE/.lock" ] || return 1
   current=$(cat "$STATE/.lock" 2>/dev/null) || return 1
   [ "$current" = "$expected" ]

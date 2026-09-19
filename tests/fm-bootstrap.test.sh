@@ -940,7 +940,7 @@ SH
 }
 
 test_network_sweeps_recheck_lock_ownership() {
-  local case_dir fakebin fake_root marker out
+  local case_dir fakebin fake_root marker out windows_identity
   case_dir="$TMP_ROOT/network-lock-handoff"
   mkdir -p "$case_dir/home/config" "$case_dir/home/projects" "$case_dir/home/state"
   printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
@@ -949,6 +949,8 @@ test_network_sweeps_recheck_lock_ownership() {
   fake_root="$case_dir/root"
   marker="$case_dir/fleet-sync.started"
   mkdir -p "$fake_root/bin"
+  git init -q -b main "$fake_root"
+  git -C "$fake_root" commit -q --allow-empty -m init
   cat > "$fake_root/bin/fm-fleet-sync.sh" <<'SH'
 #!/usr/bin/env bash
 : > "${FM_FAKE_FLEET_SYNC_STARTED_MARKER:?}"
@@ -968,6 +970,17 @@ SH
     "the stale worker did not report the refused handoff sweep"
   assert_contains "$out" "changed before project clone refresh" \
     "the stale worker did not report the refused clone refresh"
+
+  rm -f "$marker"
+  windows_identity=win:123:456
+  printf '%s\n' "$windows_identity" > "$case_dir/home/state/.lock"
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$fake_root" \
+    FM_FAKE_TREEHOUSE_LEASE_HELP=1 FM_BOOTSTRAP_NETWORK=only \
+    FM_BOOTSTRAP_NETWORK_LOCK_PID="$windows_identity" FM_FAKE_FLEET_SYNC_STARTED_MARKER="$marker" \
+    "$ROOT/bin/fm-bootstrap.sh")
+  assert_present "$marker" "an unchanged Windows lock identity blocked project clone refresh"
+  assert_not_contains "$out" "fleet lock ownership changed" \
+    "an unchanged Windows lock identity was reported as stale"
   pass "bootstrap: every deferred mutating sweep rechecks fleet-lock ownership"
 }
 
