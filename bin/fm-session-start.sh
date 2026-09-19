@@ -628,11 +628,25 @@ fi
 # --- 1. lock -----------------------------------------------------------
 stage lock
 subsection "LOCK"
-LOCK_OUT=$("$SCRIPT_DIR/fm-lock.sh" 2>&1)
-LOCK_RC=$?
+LOCK_IDENTITY_OUT=$(mktemp "${TMPDIR:-/tmp}/fm-lock-identity.XXXXXX" 2>/dev/null || true)
+if [ -n "$LOCK_IDENTITY_OUT" ]; then
+  LOCK_OUT=$("$SCRIPT_DIR/fm-lock.sh" --identity-out "$LOCK_IDENTITY_OUT" 2>&1)
+  LOCK_RC=$?
+  ACQUIRED_LOCK_IDENTITY=$(cat "$LOCK_IDENTITY_OUT" 2>/dev/null || true)
+  rm -f "$LOCK_IDENTITY_OUT" 2>/dev/null || true
+else
+  LOCK_OUT="error: cannot create acquired session lock identity file; operate read-only until resolved"
+  LOCK_RC=1
+  ACQUIRED_LOCK_IDENTITY=
+fi
+if [ "$LOCK_RC" -eq 0 ] && ! fm_session_pid_valid "$ACQUIRED_LOCK_IDENTITY"; then
+  LOCK_OUT="${LOCK_OUT}${LOCK_OUT:+
+}error: acquired session lock identity was not returned; operate read-only until resolved"
+  LOCK_RC=1
+  ACQUIRED_LOCK_IDENTITY=
+fi
 printf '%s\n' "$LOCK_OUT"
 READ_ONLY=0
-ACQUIRED_LOCK_IDENTITY=
 if [ "$LOCK_RC" -ne 0 ]; then
   READ_ONLY=1
   BAR='●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
@@ -648,9 +662,6 @@ if [ "$LOCK_RC" -ne 0 ]; then
     printf '●  otherwise mutate fleet state from this session.\n'
     printf '%s\n' "$BAR"
   }
-else
-  ACQUIRED_LOCK_IDENTITY=$(cat "$STATE/.lock" 2>/dev/null || true)
-  fm_session_pid_valid "$ACQUIRED_LOCK_IDENTITY" || ACQUIRED_LOCK_IDENTITY=
 fi
 REBUILDING_SESSION_PID=$(fm_harness_ancestry_pid 2>/dev/null || true)
 print_agents_refresh_if_required "$REBUILDING_SESSION_PID"

@@ -2348,6 +2348,12 @@ EOF
   cat > "$runtime/bin/fm-lock.sh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "${FM_FAKE_WINDOWS_IDENTITY:?}" > "${FM_STATE_OVERRIDE:?}/.lock"
+if [ "${1:-}" = "--identity-out" ]; then
+  printf '%s\n' "$FM_FAKE_WINDOWS_IDENTITY" > "${2:?}"
+fi
+if [ -n "${FM_FAKE_REPLACEMENT_IDENTITY:-}" ]; then
+  printf '%s\n' "$FM_FAKE_REPLACEMENT_IDENTITY" > "$FM_STATE_OVERRIDE/.lock"
+fi
 printf 'lock acquired: harness pid %s\n' "$FM_FAKE_WINDOWS_IDENTITY"
 SH
   chmod +x "$runtime/bin/fm-lock.sh"
@@ -2364,12 +2370,7 @@ SH
     || fail "startup completion did not preserve the Windows lock identity"
 
   replacement=win:789:1011
-  rm -f "$home/state/.session-start-complete" "$runtime/bin/fm-home-summary-refresh.sh"
-  cat > "$runtime/bin/fm-home-summary-refresh.sh" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "${FM_FAKE_REPLACEMENT_IDENTITY:?}" > "${FM_STATE_OVERRIDE:?}/.lock"
-SH
-  chmod +x "$runtime/bin/fm-home-summary-refresh.sh"
+  rm -f "$home/state/.session-start-complete"
   out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
     FM_FAKE_HARNESS=copilot FM_FAKE_HARNESS_PID="$SESSION_START_TEST_HARNESS_PID" \
     FM_FAKE_WINDOWS_IDENTITY="$identity" FM_FAKE_REPLACEMENT_IDENTITY="$replacement" \
@@ -2378,10 +2379,10 @@ SH
     "$runtime/bin/fm-session-start.sh" --source startup)
 
   assert_absent "$home/state/.session-start-complete" \
-    "startup published completion for the Windows session that replaced its lock"
+    "startup published completion after its Windows lock was replaced immediately after acquisition"
   assert_contains "$out" "SESSION_START_COMPLETION: not recorded" \
-    "startup did not report completion refusal after Windows lock ownership changed"
-  pass "Windows lock identities bind startup completion to the acquiring session"
+    "startup did not report completion refusal after immediate Windows lock replacement"
+  pass "Windows lock identities bind startup completion to the identity acquired under the claim guard"
 }
 
 test_reemit_keeps_repair_ownership_with_the_lock_holder() {

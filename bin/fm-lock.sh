@@ -20,7 +20,8 @@
 # bin/fm-startup-network.sh compares that pid across its deferred sweeps; a dead
 # recorded pid is reclaimed and rewritten to this session's anchor.
 #
-# Usage: fm-lock.sh           acquire; exit 1 unless ownership is verified
+# Usage: fm-lock.sh [--identity-out <file>]
+#                            acquire; exit 1 unless ownership is verified
 #        fm-lock.sh status    print holder and liveness; always exits 0
 set -u
 
@@ -40,6 +41,29 @@ mkdir -p "$STATE" 2>/dev/null || {
 # Stop auto-arm applies the exact same identity contract.
 # shellcheck source=bin/fm-session-lock-lib.sh
 . "$SCRIPT_DIR/fm-session-lock-lib.sh"
+
+IDENTITY_OUT=
+case "${1:-}" in
+  status)
+    [ "$#" -eq 1 ] || {
+      echo "usage: fm-lock.sh status" >&2
+      exit 2
+    }
+    ;;
+  --identity-out)
+    [ "$#" -eq 2 ] && [ -n "${2:-}" ] || {
+      echo "usage: fm-lock.sh [--identity-out <file>]" >&2
+      exit 2
+    }
+    IDENTITY_OUT=$2
+    ;;
+  "")
+    ;;
+  *)
+    echo "usage: fm-lock.sh [--identity-out <file>] | fm-lock.sh status" >&2
+    exit 2
+    ;;
+esac
 
 if [ "${1:-}" = "status" ]; then
   if [ ! -f "$LOCK" ]; then echo "lock: free"; exit 0; fi
@@ -145,6 +169,15 @@ publish_lock_session_or_die() {
   exit 1
 }
 
+publish_acquired_identity_or_die() {  # <identity>
+  [ -n "$IDENTITY_OUT" ] || return 0
+  if [ ! -f "$IDENTITY_OUT" ] || [ -L "$IDENTITY_OUT" ] \
+    || ! printf '%s\n' "$1" > "$IDENTITY_OUT" 2>/dev/null; then
+    echo "error: cannot return acquired session lock identity; operate read-only until resolved" >&2
+    exit 1
+  fi
+}
+
 # This session already holds the lock, recorded as pid $1. Line 1 stays exactly
 # as recorded while that pid is alive; only the sidecar is refreshed, under the
 # claim lock, so a /clear re-key inside the same process replaces the old id.
@@ -164,6 +197,7 @@ confirm_own_lock() {  # <recorded-pid>
   recorded=$(cat "$LOCK" 2>/dev/null || true)
   if [ "$recorded" = "$me" ] || fm_session_lock_owned_by_self "$STATE"; then
     publish_lock_session_or_die
+    publish_acquired_identity_or_die "$recorded"
     commit_lock_session
     release_claim_lock
     echo "lock acquired: harness pid $recorded"
@@ -266,6 +300,7 @@ if [ ! -f "$LOCK" ] || [ -L "$LOCK" ] || [ "$written" != "$me" ]; then
   echo "error: session lock ownership verification failed; operate read-only until resolved" >&2
   exit 1
 fi
+publish_acquired_identity_or_die "$written"
 commit_lock_session
 release_claim_lock
 echo "lock acquired: harness pid $me"
