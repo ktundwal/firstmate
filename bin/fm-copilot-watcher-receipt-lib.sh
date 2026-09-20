@@ -217,6 +217,7 @@ fm_copilot_watch_pending_path() {
 fm_copilot_watch_pending_publish() {  # <state-dir> <encoded-context>
   local state_real dir pending tmp text=$2 size
   FM_COPILOT_WATCH_PENDING_PUBLISHED=
+  FM_COPILOT_WATCH_PENDING_STAGED=
   [ -n "$text" ] || return 1
   size=${#text}
   [ "$size" -le 8192 ] || return 1
@@ -225,11 +226,29 @@ fm_copilot_watch_pending_publish() {  # <state-dir> <encoded-context>
   pending=$(fm_copilot_watch_pending_path "$state_real") || return 1
   [ ! -L "$pending" ] || return 1
   tmp=$(mktemp "$dir/.pending-context.XXXXXX") || return 1
-  chmod 600 "$tmp" 2>/dev/null || { rm -f -- "$tmp"; return 1; }
-  printf '%s' "$text" > "$tmp" || { rm -f -- "$tmp"; return 1; }
-  fm_private_data_path_matches "$tmp" file || { rm -f -- "$tmp"; return 1; }
-  mv -f -- "$tmp" "$pending" || { rm -f -- "$tmp"; return 1; }
+  FM_COPILOT_WATCH_PENDING_STAGED=$tmp
+  chmod 600 "$tmp" 2>/dev/null || {
+    rm -f -- "$tmp"
+    FM_COPILOT_WATCH_PENDING_STAGED=
+    return 1
+  }
+  printf '%s' "$text" > "$tmp" || {
+    rm -f -- "$tmp"
+    FM_COPILOT_WATCH_PENDING_STAGED=
+    return 1
+  }
+  fm_private_data_path_matches "$tmp" file || {
+    rm -f -- "$tmp"
+    FM_COPILOT_WATCH_PENDING_STAGED=
+    return 1
+  }
+  mv -f -- "$tmp" "$pending" || {
+    rm -f -- "$tmp"
+    FM_COPILOT_WATCH_PENDING_STAGED=
+    return 1
+  }
   FM_COPILOT_WATCH_PENDING_PUBLISHED=1
+  FM_COPILOT_WATCH_PENDING_STAGED=
 }
 
 fm_copilot_watch_pending_claim() {  # <state-dir>

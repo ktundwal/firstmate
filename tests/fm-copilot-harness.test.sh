@@ -1111,7 +1111,7 @@ SH
   pass "Copilot keeps one wake when agentStop consumes pending context during notification cleanup"
 }
 
-test_pending_publish_marks_delivery_at_consumer_visible_rename() {
+test_pending_publish_signal_at_consumer_visible_rename_keeps_single_delivery() {
   local dir fakebin hook_pid attempts receipt stop_out out real_mv
   dir="$TMP_ROOT/pending-publish-rename-race"
   fakebin="$dir/fakebin"
@@ -1156,6 +1156,8 @@ SH
     wait "$hook_pid" 2>/dev/null || true
     fail "notification hook did not reach the consumer-visible pending rename"
   }
+  kill -TERM "$hook_pid" 2>/dev/null \
+    || fail "could not interrupt notification at the pending publication boundary"
 
   stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_TEST_REAL_MV="$real_mv" \
     FM_TEST_PENDING_RENAME_MARKER="$dir/renamed" FM_TEST_PENDING_RENAME_RELEASE_MARKER="$dir/release" \
@@ -1173,7 +1175,7 @@ SH
   out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
     ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":true}')
   [ -z "$out" ] || fail "pending publication race left a second replayable wake: $out"
-  pass "Copilot marks pending delivery at the consumer-visible rename"
+  pass "Copilot keeps one wake when signaled at the consumer-visible pending rename"
 }
 
 test_agent_stop_generation_failure_restores_wake_tokens() {
@@ -1432,7 +1434,7 @@ test_notification_injects_watcher_followup_only_for_watcher_arm_completion
 test_notification_publish_failure_preserves_agent_stop_fallback
 test_notification_interruption_restores_agent_stop_fallback
 test_notification_interruption_after_pending_publish_keeps_single_fallback
-test_pending_publish_marks_delivery_at_consumer_visible_rename
+test_pending_publish_signal_at_consumer_visible_rename_keeps_single_delivery
 test_agent_stop_generation_failure_restores_wake_tokens
 test_agent_stop_output_failure_restores_wake_token
 test_notification_requires_primary_scope

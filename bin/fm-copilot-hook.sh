@@ -111,8 +111,11 @@ Inspect the completed task result for the reason line when needed. Run bin/fm-wa
 
 copilot_watch_receipt_cleanup() {
   local claimed=${FM_COPILOT_WATCH_RECEIPT_CLAIMED:-}
+  local staged=${FM_COPILOT_WATCH_PENDING_STAGED:-}
   [ -n "$claimed" ] || return 0
   if [ "${FM_COPILOT_WATCH_PENDING_PUBLISHED:-}" = 1 ]; then
+    fm_copilot_watch_receipt_commit "$claimed" >/dev/null 2>&1 || true
+  elif [ -n "$staged" ] && [ ! -e "$staged" ] && [ ! -L "$staged" ]; then
     fm_copilot_watch_receipt_commit "$claimed" >/dev/null 2>&1 || true
   elif [ -n "${COPILOT_WATCH_PENDING_EXPECTED:-}" ] \
        && fm_copilot_watch_pending_matches "$STATE" "$COPILOT_WATCH_PENDING_EXPECTED"; then
@@ -120,6 +123,7 @@ copilot_watch_receipt_cleanup() {
   else
     fm_copilot_watch_receipt_restore "$STATE" "$claimed" >/dev/null 2>&1 || true
   fi
+  [ -z "$staged" ] || rm -f -- "$staged"
 }
 
 copilot_watch_wake_cleanup() {
@@ -224,6 +228,7 @@ case "$MODE" in
     fm_primary_scope_matches "$ROOT" "$STATE" || exit 0
     FM_COPILOT_WATCH_RECEIPT_CLAIMED=
     FM_COPILOT_WATCH_PENDING_PUBLISHED=
+    FM_COPILOT_WATCH_PENDING_STAGED=
     COPILOT_WATCH_PENDING_EXPECTED=
     trap copilot_watch_receipt_cleanup EXIT
     trap 'exit 129' HUP
