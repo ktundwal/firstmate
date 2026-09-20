@@ -110,8 +110,23 @@ Inspect the completed task result for the reason line when needed. Run bin/fm-wa
 }
 
 copilot_watch_receipt_cleanup() {
-  [ -n "${COPILOT_WATCH_RECEIPT_CLAIMED:-}" ] || return 0
-  fm_copilot_watch_receipt_restore "$STATE" "$COPILOT_WATCH_RECEIPT_CLAIMED" >/dev/null 2>&1 || true
+  local claimed=${FM_COPILOT_WATCH_RECEIPT_CLAIMED:-}
+  [ -n "$claimed" ] || return 0
+  if [ -n "${COPILOT_WATCH_PENDING_EXPECTED:-}" ] \
+     && fm_copilot_watch_pending_matches "$STATE" "$COPILOT_WATCH_PENDING_EXPECTED"; then
+    fm_copilot_watch_receipt_commit "$claimed" >/dev/null 2>&1 || true
+  else
+    fm_copilot_watch_receipt_restore "$STATE" "$claimed" >/dev/null 2>&1 || true
+  fi
+}
+
+copilot_watch_wake_cleanup() {
+  if [ -n "${FM_COPILOT_WATCH_PENDING_CLAIMED:-}" ]; then
+    fm_copilot_watch_pending_restore "$STATE" "$FM_COPILOT_WATCH_PENDING_CLAIMED" >/dev/null 2>&1 || true
+  fi
+  if [ -n "${FM_COPILOT_WATCH_RECEIPT_CLAIMED:-}" ]; then
+    fm_copilot_watch_receipt_restore "$STATE" "$FM_COPILOT_WATCH_RECEIPT_CLAIMED" >/dev/null 2>&1 || true
+  fi
 }
 
 # shellcheck source=bin/fm-hook-host-lib.sh
@@ -154,15 +169,35 @@ case "$MODE" in
     # shellcheck source=bin/fm-primary-scope-lib.sh
     . "$SCRIPT_DIR/fm-primary-scope-lib.sh"
     if fm_primary_scope_matches "$ROOT" "$STATE"; then
-      REASON=$(fm_copilot_watch_pending_claim "$STATE" 2>/dev/null || true)
-      if [ -z "$REASON" ] && fm_copilot_watch_receipt_claim "$ROOT" "$HOME" "$STATE" >/dev/null 2>&1; then
+      FM_COPILOT_WATCH_PENDING_CLAIMED=
+      FM_COPILOT_WATCH_PENDING_CONTEXT=
+      FM_COPILOT_WATCH_RECEIPT_CLAIMED=
+      trap copilot_watch_wake_cleanup EXIT
+      trap 'exit 129' HUP
+      trap 'exit 130' INT
+      trap 'exit 143' TERM
+      REASON=
+      if fm_copilot_watch_pending_acquire "$STATE" >/dev/null 2>&1; then
+        REASON=$FM_COPILOT_WATCH_PENDING_CONTEXT
+      elif fm_copilot_watch_receipt_acquire "$ROOT" "$HOME" "$STATE" >/dev/null 2>&1; then
         copilot_watch_followup || exit 0
         REASON=$COPILOT_WATCH_FOLLOWUP
       fi
       if [ -n "$REASON" ]; then
-        jq -cn --arg reason "$REASON" '{decision:"block",reason:$reason}'
+        BLOCK_JSON=$(jq -cn --arg reason "$REASON" '{decision:"block",reason:$reason}') || exit 0
+        if [ -n "${FM_COPILOT_WATCH_PENDING_CLAIMED:-}" ]; then
+          fm_copilot_watch_pending_commit "$FM_COPILOT_WATCH_PENDING_CLAIMED" || exit 0
+          FM_COPILOT_WATCH_PENDING_CLAIMED=
+        fi
+        if [ -n "${FM_COPILOT_WATCH_RECEIPT_CLAIMED:-}" ]; then
+          fm_copilot_watch_receipt_commit "$FM_COPILOT_WATCH_RECEIPT_CLAIMED" || exit 0
+          FM_COPILOT_WATCH_RECEIPT_CLAIMED=
+        fi
+        trap - EXIT HUP INT TERM
+        printf '%s\n' "$BLOCK_JSON"
         exit 0
       fi
+      trap - EXIT HUP INT TERM
     fi
     REASON_FILE=$(mktemp "${TMPDIR:-/tmp}/fm-copilot-agent-stop.XXXXXX") || exit 0
     trap 'rm -f "$REASON_FILE"' EXIT HUP INT TERM
@@ -185,16 +220,18 @@ case "$MODE" in
     # shellcheck source=bin/fm-primary-scope-lib.sh
     . "$SCRIPT_DIR/fm-primary-scope-lib.sh"
     fm_primary_scope_matches "$ROOT" "$STATE" || exit 0
-    copilot_notification_has_watcher_completion "$PAYLOAD" "$ROOT" "$HOME" "$STATE" || exit 0
-    COPILOT_WATCH_RECEIPT_CLAIMED=$FM_COPILOT_WATCH_RECEIPT_CLAIMED
+    FM_COPILOT_WATCH_RECEIPT_CLAIMED=
+    COPILOT_WATCH_PENDING_EXPECTED=
     trap copilot_watch_receipt_cleanup EXIT
     trap 'exit 129' HUP
     trap 'exit 130' INT
     trap 'exit 143' TERM
+    copilot_notification_has_watcher_completion "$PAYLOAD" "$ROOT" "$HOME" "$STATE" || exit 0
     copilot_watch_followup || exit 0
+    COPILOT_WATCH_PENDING_EXPECTED=$COPILOT_WATCH_FOLLOWUP
     fm_copilot_watch_pending_publish "$STATE" "$COPILOT_WATCH_FOLLOWUP" || exit 0
     fm_copilot_watch_receipt_commit "$FM_COPILOT_WATCH_RECEIPT_CLAIMED" || exit 0
-    COPILOT_WATCH_RECEIPT_CLAIMED=
+    FM_COPILOT_WATCH_RECEIPT_CLAIMED=
     trap - EXIT HUP INT TERM
     jq -cn --arg text "$COPILOT_WATCH_FOLLOWUP" '{additionalContext:$text}'
     ;;

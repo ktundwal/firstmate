@@ -166,12 +166,16 @@ fm_copilot_watch_receipt_acquire() {
     attempt=$((attempt + 1))
     [ "$attempt" -lt 100 ] || return 1
   done
-  mv -- "$receipt" "$claimed" 2>/dev/null || return 1
+  FM_COPILOT_WATCH_RECEIPT_CLAIMED=$claimed
+  mv -- "$receipt" "$claimed" 2>/dev/null || {
+    FM_COPILOT_WATCH_RECEIPT_CLAIMED=
+    return 1
+  }
   if ! fm_copilot_watch_receipt_validate_claimed "$claimed" "$root_real" "$home_real" "$state_real"; then
     rm -f -- "$claimed"
+    FM_COPILOT_WATCH_RECEIPT_CLAIMED=
     return 1
   fi
-  FM_COPILOT_WATCH_RECEIPT_CLAIMED=$claimed
 }
 
 fm_copilot_watch_receipt_commit() {
@@ -229,7 +233,15 @@ fm_copilot_watch_pending_publish() {  # <state-dir> <encoded-context>
 }
 
 fm_copilot_watch_pending_claim() {  # <state-dir>
-  local state_real dir pending claimed size rc=1
+  fm_copilot_watch_pending_acquire "$1" || return 1
+  printf '%s' "$FM_COPILOT_WATCH_PENDING_CONTEXT"
+  fm_copilot_watch_pending_commit "$FM_COPILOT_WATCH_PENDING_CLAIMED"
+}
+
+fm_copilot_watch_pending_acquire() {  # <state-dir>
+  local state_real dir pending claimed size context_size
+  FM_COPILOT_WATCH_PENDING_CLAIMED=
+  FM_COPILOT_WATCH_PENDING_CONTEXT=
   state_real=$(fm_copilot_watch_receipt_real_dir "$1") || return 1
   dir="$state_real/.copilot-watch-arm"
   [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
@@ -237,13 +249,74 @@ fm_copilot_watch_pending_claim() {  # <state-dir>
   pending=$(fm_copilot_watch_pending_path "$state_real") || return 1
   [ -f "$pending" ] && [ ! -L "$pending" ] || return 1
   claimed="$dir/.pending-claimed.$$.$RANDOM"
-  mv -- "$pending" "$claimed" 2>/dev/null || return 1
+  FM_COPILOT_WATCH_PENDING_CLAIMED=$claimed
+  mv -- "$pending" "$claimed" 2>/dev/null || {
+    FM_COPILOT_WATCH_PENDING_CLAIMED=
+    return 1
+  }
   if [ -f "$claimed" ] && [ ! -L "$claimed" ] \
      && fm_private_data_path_matches "$claimed" file \
      && [ "$(fm_copilot_watch_receipt_links "$claimed")" = 1 ]; then
     size=$(wc -c < "$claimed" 2>/dev/null | tr -d '[:space:]') || size=
-    case "$size" in ''|*[!0-9]*) ;; *) [ "$size" -le 8192 ] && cat "$claimed" && rc=0 ;; esac
+    case "$size" in
+      ''|*[!0-9]*) ;;
+      *)
+        if [ "$size" -gt 0 ] && [ "$size" -le 8192 ]; then
+          FM_COPILOT_WATCH_PENDING_CONTEXT=$(cat "$claimed") || {
+            rm -f -- "$claimed"
+            FM_COPILOT_WATCH_PENDING_CLAIMED=
+            FM_COPILOT_WATCH_PENDING_CONTEXT=
+            return 1
+          }
+          context_size=$(printf '%s' "$FM_COPILOT_WATCH_PENDING_CONTEXT" | wc -c | tr -d '[:space:]')
+          [ "$context_size" = "$size" ] && return 0
+        fi
+        ;;
+    esac
   fi
   rm -f -- "$claimed"
-  return "$rc"
+  FM_COPILOT_WATCH_PENDING_CLAIMED=
+  FM_COPILOT_WATCH_PENDING_CONTEXT=
+  return 1
+}
+
+fm_copilot_watch_pending_commit() {
+  local claimed=${1:-}
+  [ -n "$claimed" ] || return 1
+  rm -f -- "$claimed"
+}
+
+fm_copilot_watch_pending_restore() {
+  local state_real dir pending claimed=${2:-}
+  state_real=$(fm_copilot_watch_receipt_real_dir "$1") || return 1
+  dir="$state_real/.copilot-watch-arm"
+  case "$claimed" in "$dir"/.pending-claimed.*) ;; *) return 1 ;; esac
+  [ -f "$claimed" ] && [ ! -L "$claimed" ] || return 1
+  fm_private_data_path_matches "$claimed" file || return 1
+  pending=$(fm_copilot_watch_pending_path "$state_real") || return 1
+  if ln "$claimed" "$pending" 2>/dev/null; then
+    rm -f -- "$claimed"
+    return 0
+  fi
+  if [ -f "$pending" ] && [ ! -L "$pending" ] \
+     && fm_private_data_path_matches "$pending" file; then
+    rm -f -- "$claimed"
+    return 0
+  fi
+  return 1
+}
+
+fm_copilot_watch_pending_matches() {  # <state-dir> <encoded-context>
+  local state_real pending expected=$2 size expected_size actual
+  state_real=$(fm_copilot_watch_receipt_real_dir "$1") || return 1
+  pending=$(fm_copilot_watch_pending_path "$state_real") || return 1
+  [ -f "$pending" ] && [ ! -L "$pending" ] || return 1
+  fm_private_data_path_matches "$pending" file || return 1
+  [ "$(fm_copilot_watch_receipt_links "$pending")" = 1 ] || return 1
+  size=$(wc -c < "$pending" 2>/dev/null | tr -d '[:space:]') || return 1
+  case "$size" in ''|*[!0-9]*) return 1 ;; esac
+  expected_size=$(printf '%s' "$expected" | wc -c | tr -d '[:space:]') || return 1
+  [ "$size" = "$expected_size" ] || return 1
+  actual=$(cat "$pending") || return 1
+  [ "$actual" = "$expected" ]
 }
