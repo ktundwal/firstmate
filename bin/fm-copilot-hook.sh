@@ -112,8 +112,10 @@ Inspect the completed task result for the reason line when needed. Run bin/fm-wa
 copilot_watch_receipt_cleanup() {
   local claimed=${FM_COPILOT_WATCH_RECEIPT_CLAIMED:-}
   [ -n "$claimed" ] || return 0
-  if [ -n "${COPILOT_WATCH_PENDING_EXPECTED:-}" ] \
-     && fm_copilot_watch_pending_matches "$STATE" "$COPILOT_WATCH_PENDING_EXPECTED"; then
+  if [ "${FM_COPILOT_WATCH_PENDING_PUBLISHED:-}" = 1 ]; then
+    fm_copilot_watch_receipt_commit "$claimed" >/dev/null 2>&1 || true
+  elif [ -n "${COPILOT_WATCH_PENDING_EXPECTED:-}" ] \
+       && fm_copilot_watch_pending_matches "$STATE" "$COPILOT_WATCH_PENDING_EXPECTED"; then
     fm_copilot_watch_receipt_commit "$claimed" >/dev/null 2>&1 || true
   else
     fm_copilot_watch_receipt_restore "$STATE" "$claimed" >/dev/null 2>&1 || true
@@ -221,6 +223,7 @@ case "$MODE" in
     . "$SCRIPT_DIR/fm-primary-scope-lib.sh"
     fm_primary_scope_matches "$ROOT" "$STATE" || exit 0
     FM_COPILOT_WATCH_RECEIPT_CLAIMED=
+    FM_COPILOT_WATCH_PENDING_PUBLISHED=
     COPILOT_WATCH_PENDING_EXPECTED=
     trap copilot_watch_receipt_cleanup EXIT
     trap 'exit 129' HUP

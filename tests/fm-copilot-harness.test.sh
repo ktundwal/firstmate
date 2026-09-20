@@ -1042,24 +1042,31 @@ SH
 }
 
 test_notification_interruption_after_pending_publish_keeps_single_fallback() {
-  local dir fakebin hook_pid attempts receipt pending stop_out out real_mv
+  local dir fakebin hook_pid attempts receipt pending stop_out out real_rm
   dir="$TMP_ROOT/notification-pending-interruption"
   fakebin="$dir/fakebin"
   make_notification_fixture "$dir"
   make_ps "$fakebin"
-  real_mv=$(command -v mv)
-  cat > "$fakebin/mv" <<'SH'
+  real_rm=$(command -v rm)
+  cat > "$fakebin/rm" <<'SH'
 #!/usr/bin/env bash
-"$FM_TEST_REAL_MV" "$@" || exit $?
 target=${!#}
-if [ "$target" = "$FM_TEST_PENDING_PATH" ]; then
-  : > "$FM_TEST_PENDING_PUBLISHED_MARKER"
-  while [ ! -e "$FM_TEST_PENDING_RELEASE_MARKER" ]; do
+case "$target" in
+  */.claimed.*) ;;
+  *) exec "$FM_TEST_REAL_RM" "$@" ;;
+esac
+if [ -n "${FM_TEST_RECEIPT_COMMIT_MARKER:-}" ] \
+   && [ ! -e "$FM_TEST_RECEIPT_COMMIT_MARKER.failed" ]; then
+  : > "$FM_TEST_RECEIPT_COMMIT_MARKER"
+  while [ ! -e "$FM_TEST_RECEIPT_COMMIT_RELEASE_MARKER" ]; do
     sleep 0.05
   done
+  : > "$FM_TEST_RECEIPT_COMMIT_MARKER.failed"
+  exit 1
 fi
+exec "$FM_TEST_REAL_RM" "$@"
 SH
-  chmod +x "$fakebin/mv"
+  chmod +x "$fakebin/rm"
   printf '%s' '{"notification_type":"shell_completed","command":"exec ./bin/fm-watch-arm.sh"}' > "$dir/in.json"
   copilot_watch_receipt_publish "$dir" "$dir" "$dir/state" \
     || fail "could not publish the watcher receipt"
@@ -1068,38 +1075,40 @@ SH
   (
     cd "$dir" || exit 1
     exec env PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
-      FM_TEST_REAL_MV="$real_mv" FM_TEST_PENDING_PATH="$pending" \
-      FM_TEST_PENDING_PUBLISHED_MARKER="$dir/published" FM_TEST_PENDING_RELEASE_MARKER="$dir/release" \
+      FM_TEST_REAL_RM="$real_rm" FM_TEST_RECEIPT_COMMIT_MARKER="$dir/commit" \
+      FM_TEST_RECEIPT_COMMIT_RELEASE_MARKER="$dir/release" \
       ./bin/fm-copilot-hook.sh notification < "$dir/in.json" > "$dir/notification.out"
   ) &
   hook_pid=$!
   attempts=0
-  while [ ! -e "$dir/published" ] && kill -0 "$hook_pid" 2>/dev/null && [ "$attempts" -lt 100 ]; do
+  while [ ! -e "$dir/commit" ] && kill -0 "$hook_pid" 2>/dev/null && [ "$attempts" -lt 100 ]; do
     sleep 0.05
     attempts=$((attempts + 1))
   done
-  [ -e "$dir/published" ] || {
+  [ -e "$dir/commit" ] || {
     kill "$hook_pid" 2>/dev/null || true
     wait "$hook_pid" 2>/dev/null || true
     fail "notification hook did not reach the post-publication interruption point"
   }
+
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_TEST_REAL_RM="$real_rm" \
+    FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  printf '%s' "$stop_out" | jq -e '.decision == "block" and (.reason | contains("FIRSTMATE WATCHER WAKE"))' >/dev/null \
+    || fail "concurrent agentStop did not consume the published pending context: $stop_out"
+
   kill -TERM "$hook_pid" 2>/dev/null || fail "could not interrupt the notification hook after publication"
   : > "$dir/release"
   wait "$hook_pid" 2>/dev/null || true
-  rm -f "$fakebin/mv"
+  rm -f "$fakebin/rm"
 
   receipt=$(copilot_watch_receipt_path "$dir/state") || fail "could not resolve the watcher receipt"
-  [ ! -e "$receipt" ] || fail "notification interruption restored a receipt after pending context was durable"
-  [ -f "$pending" ] || fail "notification interruption lost the durable pending context"
-
-  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
-    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
-  printf '%s' "$stop_out" | jq -e '.decision == "block" and (.reason | contains("FIRSTMATE WATCHER WAKE"))' >/dev/null \
-    || fail "agentStop did not deliver pending context after notification interruption: $stop_out"
+  [ ! -e "$receipt" ] || fail "notification interruption restored a receipt after concurrent pending consumption"
+  [ ! -e "$pending" ] || fail "concurrent agentStop left the pending context replayable"
   out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
     ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":true}')
   [ -z "$out" ] || fail "notification interruption left two replayable wake tokens: $out"
-  pass "Copilot keeps one fallback when interrupted after pending publication"
+  pass "Copilot keeps one wake when agentStop consumes pending context during notification cleanup"
 }
 
 test_agent_stop_generation_failure_restores_wake_tokens() {
