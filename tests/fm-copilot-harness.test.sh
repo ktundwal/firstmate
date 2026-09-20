@@ -975,6 +975,64 @@ test_notification_publish_failure_preserves_agent_stop_fallback() {
   pass "Copilot preserves the agentStop fallback when notification context publication fails"
 }
 
+test_notification_interruption_restores_agent_stop_fallback() {
+  local dir fakebin out stop_out hook_pid receipt claimed attempts
+  dir="$TMP_ROOT/notification-interruption"
+  fakebin="$dir/fakebin"
+  make_notification_fixture "$dir"
+  make_ps "$fakebin"
+  mv "$dir/bin/fm-operational-input.sh" "$dir/bin/fm-operational-input.real.sh"
+  cat > "$dir/bin/fm-operational-input.sh" <<'SH'
+#!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/fm-operational-input.real.sh"
+if [ -n "${FM_TEST_RECEIPT_ACQUIRED_MARKER:-}" ]; then
+  : > "$FM_TEST_RECEIPT_ACQUIRED_MARKER"
+  while [ ! -e "$FM_TEST_RECEIPT_RELEASE_MARKER" ]; do
+    sleep 0.05
+  done
+fi
+SH
+  chmod +x "$dir/bin/fm-operational-input.sh"
+  printf '%s' '{"notification_type":"shell_completed","command":"exec ./bin/fm-watch-arm.sh"}' > "$dir/in.json"
+  copilot_watch_receipt_publish "$dir" "$dir" "$dir/state" \
+    || fail "could not publish the watcher receipt"
+
+  (
+    cd "$dir" || exit 1
+    exec env PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+      FM_TEST_RECEIPT_ACQUIRED_MARKER="$dir/acquired" FM_TEST_RECEIPT_RELEASE_MARKER="$dir/release" \
+      ./bin/fm-copilot-hook.sh notification < "$dir/in.json" > "$dir/notification.out"
+  ) &
+  hook_pid=$!
+  attempts=0
+  while [ ! -e "$dir/acquired" ] && kill -0 "$hook_pid" 2>/dev/null && [ "$attempts" -lt 100 ]; do
+    sleep 0.05
+    attempts=$((attempts + 1))
+  done
+  [ -e "$dir/acquired" ] || {
+    kill "$hook_pid" 2>/dev/null || true
+    wait "$hook_pid" 2>/dev/null || true
+    fail "notification hook did not reach the post-acquisition interruption point"
+  }
+  kill -TERM "$hook_pid" 2>/dev/null || fail "could not interrupt the notification hook"
+  wait "$hook_pid" 2>/dev/null || true
+
+  receipt=$(copilot_watch_receipt_path "$dir/state") || fail "could not resolve the restored watcher receipt"
+  [ -f "$receipt" ] || fail "notification interruption did not restore the watcher receipt"
+  claimed=$(find "$dir/state/.copilot-watch-arm" -name '.claimed.*' -type f -print -quit)
+  [ -z "$claimed" ] || fail "notification interruption left a stranded watcher receipt claim: $claimed"
+
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  printf '%s' "$stop_out" | jq -e '.decision == "block" and (.reason | contains("FIRSTMATE WATCHER WAKE"))' >/dev/null \
+    || fail "agentStop lost the watcher receipt after notification interruption: $stop_out"
+
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":true}')
+  [ -z "$out" ] || fail "the interruption-restored watcher receipt replayed through agentStop: $out"
+  pass "Copilot restores the agentStop fallback when notification is interrupted"
+}
+
 test_tracked_primary_hook_commands_execute() {
   local dir fakebin hooks cmd out rc args payload reason seen_arm=0 seen_cd=0 seen_subagent=0
   dir="$TMP_ROOT/tracked-primary-hooks"
@@ -1141,6 +1199,7 @@ test_copilot_native_policies_bypass_compatibility_stand_down
 test_agent_stop_allows_clean_stop
 test_notification_injects_watcher_followup_only_for_watcher_arm_completion
 test_notification_publish_failure_preserves_agent_stop_fallback
+test_notification_interruption_restores_agent_stop_fallback
 test_notification_requires_primary_scope
 test_tracked_primary_hook_commands_execute
 test_non_cli_hook_surface_stands_down

@@ -109,6 +109,11 @@ Inspect the completed task result for the reason line when needed. Run bin/fm-wa
   fm_operational_input_encode watcher "$body" COPILOT_WATCH_FOLLOWUP
 }
 
+copilot_watch_receipt_cleanup() {
+  [ -n "${COPILOT_WATCH_RECEIPT_CLAIMED:-}" ] || return 0
+  fm_copilot_watch_receipt_restore "$STATE" "$COPILOT_WATCH_RECEIPT_CLAIMED" >/dev/null 2>&1 || true
+}
+
 # shellcheck source=bin/fm-hook-host-lib.sh
 . "$SCRIPT_DIR/fm-hook-host-lib.sh"
 [ "$(fm_hook_actual_host)" = copilot ] || exit 0
@@ -181,15 +186,16 @@ case "$MODE" in
     . "$SCRIPT_DIR/fm-primary-scope-lib.sh"
     fm_primary_scope_matches "$ROOT" "$STATE" || exit 0
     copilot_notification_has_watcher_completion "$PAYLOAD" "$ROOT" "$HOME" "$STATE" || exit 0
-    if ! copilot_watch_followup; then
-      fm_copilot_watch_receipt_restore "$STATE" "$FM_COPILOT_WATCH_RECEIPT_CLAIMED" >/dev/null 2>&1
-      exit 0
-    fi
-    if ! fm_copilot_watch_pending_publish "$STATE" "$COPILOT_WATCH_FOLLOWUP"; then
-      fm_copilot_watch_receipt_restore "$STATE" "$FM_COPILOT_WATCH_RECEIPT_CLAIMED" >/dev/null 2>&1
-      exit 0
-    fi
+    COPILOT_WATCH_RECEIPT_CLAIMED=$FM_COPILOT_WATCH_RECEIPT_CLAIMED
+    trap copilot_watch_receipt_cleanup EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    copilot_watch_followup || exit 0
+    fm_copilot_watch_pending_publish "$STATE" "$COPILOT_WATCH_FOLLOWUP" || exit 0
     fm_copilot_watch_receipt_commit "$FM_COPILOT_WATCH_RECEIPT_CLAIMED" || exit 0
+    COPILOT_WATCH_RECEIPT_CLAIMED=
+    trap - EXIT HUP INT TERM
     jq -cn --arg text "$COPILOT_WATCH_FOLLOWUP" '{additionalContext:$text}'
     ;;
   *)
