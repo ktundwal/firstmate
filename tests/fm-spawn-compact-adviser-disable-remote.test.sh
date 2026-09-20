@@ -64,6 +64,7 @@ git -C "$REMOTE_ROOT" commit -qm 'remote fixture root'
 
 cat > "$FAKEBIN/fake-ssh" <<'SH'
 #!/usr/bin/env bash
+[ -z "${FM_FAKE_SSH_CALLS:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_SSH_CALLS"
 while [ "$#" -gt 0 ]; do
   case "$1" in -o) shift 2 ;; --) shift; break ;; *) exit 90 ;; esac
 done
@@ -107,6 +108,7 @@ remote_env() {
   FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
   FM_REMOTE_JOB_STATE_ROOT="$TMP_ROOT/remote-jobs" \
   FM_FAKE_REMOTE_CWD="$TMP_ROOT" \
+  FM_FAKE_SSH_CALLS="$TMP_ROOT/ssh.calls" \
   FM_SEND_SETTLE=0 FM_SEND_SLEEP=0 \
   "$@"
 }
@@ -132,7 +134,21 @@ FM_SECONDMATE_CHARTER='Own iOS delivery on the build Mac.' \
   remote_env "$ROOT/bin/fm-remote-home-seed.sh" ios remote-mac "$REMOTE_ROOT" "$REMOTE_HOME" --no-projects >/dev/null \
   || fail "remote seed did not provision the route under test"
 
-run_remote_launch() {  # <label>
+  # An unsupported adapter must fail at the parent before readiness, sync, or
+  # inherited-state transfer reaches the remote host.
+  : > "$TMP_ROOT/ssh.calls"
+  printf 'copilot\n' > "$PARENT/config/secondmate-harness"
+  if out=$(remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate 2>&1); then
+    fail "remote Copilot second-mate spawn succeeded"
+  fi
+  assert_contains "$out" "copilot" \
+    "remote Copilot rejection did not identify the unsupported adapter"
+  [ ! -s "$TMP_ROOT/ssh.calls" ] \
+    || fail "remote Copilot rejection contacted the host before refusing"
+  printf 'codex\n' > "$PARENT/config/secondmate-harness"
+  pass "remote Copilot refuses before readiness or transfer side effects"
+
+  run_remote_launch() {  # <label>
   local label=$1
   reset_remote_herdr_fixture "$HERDR_STATE"
   : > "$HERDR_LOG"

@@ -1111,6 +1111,71 @@ SH
   pass "Copilot keeps one wake when agentStop consumes pending context during notification cleanup"
 }
 
+test_pending_publish_marks_delivery_at_consumer_visible_rename() {
+  local dir fakebin hook_pid attempts receipt stop_out out real_mv
+  dir="$TMP_ROOT/pending-publish-rename-race"
+  fakebin="$dir/fakebin"
+  make_notification_fixture "$dir"
+  make_ps "$fakebin"
+  real_mv=$(command -v mv)
+  cat > "$fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+target=${!#}
+case "$target" in
+  */pending-context)
+    "$FM_TEST_REAL_MV" "$@" || exit
+    : > "$FM_TEST_PENDING_RENAME_MARKER"
+    while [ ! -e "$FM_TEST_PENDING_RENAME_RELEASE_MARKER" ]; do
+      sleep 0.05
+    done
+    exit 0
+    ;;
+esac
+exec "$FM_TEST_REAL_MV" "$@"
+SH
+  chmod +x "$fakebin/mv"
+  printf '%s' '{"notification_type":"shell_completed","command":"exec ./bin/fm-watch-arm.sh"}' > "$dir/in.json"
+  copilot_watch_receipt_publish "$dir" "$dir" "$dir/state" \
+    || fail "could not publish the watcher receipt"
+
+  (
+    cd "$dir" || exit 1
+    exec env PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+      FM_TEST_REAL_MV="$real_mv" FM_TEST_PENDING_RENAME_MARKER="$dir/renamed" \
+      FM_TEST_PENDING_RENAME_RELEASE_MARKER="$dir/release" \
+      ./bin/fm-copilot-hook.sh notification < "$dir/in.json" > "$dir/notification.out"
+  ) &
+  hook_pid=$!
+  attempts=0
+  while [ ! -e "$dir/renamed" ] && kill -0 "$hook_pid" 2>/dev/null && [ "$attempts" -lt 100 ]; do
+    sleep 0.05
+    attempts=$((attempts + 1))
+  done
+  [ -e "$dir/renamed" ] || {
+    kill "$hook_pid" 2>/dev/null || true
+    wait "$hook_pid" 2>/dev/null || true
+    fail "notification hook did not reach the consumer-visible pending rename"
+  }
+
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_TEST_REAL_MV="$real_mv" \
+    FM_TEST_PENDING_RENAME_MARKER="$dir/renamed" FM_TEST_PENDING_RENAME_RELEASE_MARKER="$dir/release" \
+    FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  printf '%s' "$stop_out" | jq -e '.decision == "block" and (.reason | contains("FIRSTMATE WATCHER WAKE"))' >/dev/null \
+    || fail "agentStop did not consume pending context at the publication boundary: $stop_out"
+
+  : > "$dir/release"
+  wait "$hook_pid" 2>/dev/null || true
+  rm -f "$fakebin/mv"
+
+  receipt=$(copilot_watch_receipt_path "$dir/state") || fail "could not resolve watcher receipt"
+  [ ! -e "$receipt" ] || fail "publisher restored a duplicate receipt after pending context was consumed"
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":true}')
+  [ -z "$out" ] || fail "pending publication race left a second replayable wake: $out"
+  pass "Copilot marks pending delivery at the consumer-visible rename"
+}
+
 test_agent_stop_generation_failure_restores_wake_tokens() {
   local dir fakebin real_jq out stop_out pending receipt
   dir="$TMP_ROOT/agent-stop-generation-failure"
@@ -1330,6 +1395,7 @@ test_notification_injects_watcher_followup_only_for_watcher_arm_completion
 test_notification_publish_failure_preserves_agent_stop_fallback
 test_notification_interruption_restores_agent_stop_fallback
 test_notification_interruption_after_pending_publish_keeps_single_fallback
+test_pending_publish_marks_delivery_at_consumer_visible_rename
 test_agent_stop_generation_failure_restores_wake_tokens
 test_notification_requires_primary_scope
 test_tracked_primary_hook_commands_execute
