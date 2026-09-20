@@ -229,8 +229,6 @@ fm_copilot_watch_pending_publish() {  # <state-dir> <encoded-context>
   printf '%s' "$text" > "$tmp" || { rm -f -- "$tmp"; return 1; }
   fm_private_data_path_matches "$tmp" file || { rm -f -- "$tmp"; return 1; }
   mv -f -- "$tmp" "$pending" || { rm -f -- "$tmp"; return 1; }
-  chmod 600 "$pending" 2>/dev/null || { rm -f -- "$pending"; return 1; }
-  fm_private_data_path_matches "$pending" file || return 1
   FM_COPILOT_WATCH_PENDING_PUBLISHED=1
 }
 

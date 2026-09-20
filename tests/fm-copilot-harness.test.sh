@@ -1227,6 +1227,43 @@ SH
   pass "Copilot restores wake tokens when agentStop block generation fails"
 }
 
+test_agent_stop_output_failure_restores_wake_token() {
+  local dir fakebin out stop_out pending
+  dir="$TMP_ROOT/agent-stop-output-failure"
+  fakebin="$dir/fakebin"
+  make_notification_fixture "$dir"
+  make_ps "$fakebin"
+  cat > "$dir/fail-block-output.bash" <<'SH'
+printf() {
+  if [ "${FM_TEST_FAIL_BLOCK_OUTPUT:-0}" = 1 ] && [ "${1:-}" = '%s\n' ]; then
+    case "${2:-}" in
+      '{"decision":"block"'*) return 1 ;;
+    esac
+  fi
+  builtin printf "$@"
+}
+SH
+
+  pending="$dir/state/.copilot-watch-arm/pending-context"
+  bash -c '. "$1"; fm_copilot_watch_pending_publish "$2" "$3"' _ \
+    "$WATCH_RECEIPT_LIB" "$dir/state" 'pending watcher wake' \
+    || fail "could not publish pending context for agentStop output failure"
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" BASH_ENV="$dir/fail-block-output.bash" \
+    FM_TEST_FAIL_BLOCK_OUTPUT=1 FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  [ -z "$out" ] || fail "failed agentStop output unexpectedly emitted content: $out"
+  [ -f "$pending" ] || fail "failed agentStop output did not restore pending context"
+
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  printf '%s' "$stop_out" | jq -e '.decision == "block" and .reason == "pending watcher wake"' >/dev/null \
+    || fail "pending context restored after output failure did not block agentStop: $stop_out"
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":true}')
+  [ -z "$out" ] || fail "output-failure wake token replayed after successful agentStop output: $out"
+  pass "Copilot restores wake tokens when agentStop block output fails"
+}
+
 test_tracked_primary_hook_commands_execute() {
   local dir fakebin hooks cmd out rc args payload reason seen_arm=0 seen_cd=0 seen_subagent=0
   dir="$TMP_ROOT/tracked-primary-hooks"
@@ -1397,6 +1434,7 @@ test_notification_interruption_restores_agent_stop_fallback
 test_notification_interruption_after_pending_publish_keeps_single_fallback
 test_pending_publish_marks_delivery_at_consumer_visible_rename
 test_agent_stop_generation_failure_restores_wake_tokens
+test_agent_stop_output_failure_restores_wake_token
 test_notification_requires_primary_scope
 test_tracked_primary_hook_commands_execute
 test_non_cli_hook_surface_stands_down

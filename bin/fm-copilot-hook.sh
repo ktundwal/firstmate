@@ -187,6 +187,7 @@ case "$MODE" in
       fi
       if [ -n "$REASON" ]; then
         BLOCK_JSON=$(jq -cn --arg reason "$REASON" '{decision:"block",reason:$reason}') || exit 0
+        printf '%s\n' "$BLOCK_JSON" || exit 0
         if [ -n "${FM_COPILOT_WATCH_PENDING_CLAIMED:-}" ]; then
           fm_copilot_watch_pending_commit "$FM_COPILOT_WATCH_PENDING_CLAIMED" || exit 0
           FM_COPILOT_WATCH_PENDING_CLAIMED=
@@ -196,7 +197,6 @@ case "$MODE" in
           FM_COPILOT_WATCH_RECEIPT_CLAIMED=
         fi
         trap - EXIT HUP INT TERM
-        printf '%s\n' "$BLOCK_JSON"
         exit 0
       fi
       trap - EXIT HUP INT TERM
