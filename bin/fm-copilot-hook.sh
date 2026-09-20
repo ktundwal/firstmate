@@ -55,6 +55,7 @@ copilot_notification_has_named_watcher_completion() {
 copilot_notification_has_watcher_completion() {
   local payload=${1:-} root=${2:-} home=${3:-} state=${4:-}
   local policy command verdict saw_command=0 can_classify=0
+  FM_COPILOT_WATCH_RECEIPT_CLAIMED=
   [ -n "$payload" ] || return 1
   [ -n "$root" ] && [ -n "$home" ] && [ -n "$state" ] || return 1
   command -v jq >/dev/null 2>&1 || return 1
@@ -72,7 +73,7 @@ copilot_notification_has_watcher_completion() {
     [ "$can_classify" -eq 1 ] || continue
     verdict=$(node "$policy" watcher-arm --root "$root" --home "$home" --command "$command" 2>/dev/null || true)
     if [ "$verdict" = watch-arm ]; then
-      fm_copilot_watch_receipt_claim "$root" "$home" "$state" >/dev/null 2>&1 && return 0
+      fm_copilot_watch_receipt_acquire "$root" "$home" "$state" >/dev/null 2>&1 && return 0
       return 1
     fi
   done < <(printf '%s' "$payload" | jq -j '
@@ -96,7 +97,7 @@ copilot_notification_has_watcher_completion() {
 ' 2>/dev/null)
   [ "$saw_command" -eq 0 ] || return 1
   copilot_notification_has_named_watcher_completion "$payload" || return 1
-  fm_copilot_watch_receipt_claim "$root" "$home" "$state"
+  fm_copilot_watch_receipt_acquire "$root" "$home" "$state"
 }
 
 copilot_watch_followup() {
@@ -180,8 +181,15 @@ case "$MODE" in
     . "$SCRIPT_DIR/fm-primary-scope-lib.sh"
     fm_primary_scope_matches "$ROOT" "$STATE" || exit 0
     copilot_notification_has_watcher_completion "$PAYLOAD" "$ROOT" "$HOME" "$STATE" || exit 0
-    copilot_watch_followup || exit 0
-    fm_copilot_watch_pending_publish "$STATE" "$COPILOT_WATCH_FOLLOWUP" || exit 0
+    if ! copilot_watch_followup; then
+      fm_copilot_watch_receipt_restore "$STATE" "$FM_COPILOT_WATCH_RECEIPT_CLAIMED" >/dev/null 2>&1
+      exit 0
+    fi
+    if ! fm_copilot_watch_pending_publish "$STATE" "$COPILOT_WATCH_FOLLOWUP"; then
+      fm_copilot_watch_receipt_restore "$STATE" "$FM_COPILOT_WATCH_RECEIPT_CLAIMED" >/dev/null 2>&1
+      exit 0
+    fi
+    fm_copilot_watch_receipt_commit "$FM_COPILOT_WATCH_RECEIPT_CLAIMED" || exit 0
     jq -cn --arg text "$COPILOT_WATCH_FOLLOWUP" '{additionalContext:$text}'
     ;;
   *)

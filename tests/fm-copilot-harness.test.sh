@@ -947,6 +947,34 @@ test_notification_requires_primary_scope() {
   pass "Copilot notification stands down outside genuine primary scope"
 }
 
+test_notification_publish_failure_preserves_agent_stop_fallback() {
+  local dir fakebin out stop_out pending
+  dir="$TMP_ROOT/notification-publish-failure"
+  fakebin="$dir/fakebin"
+  make_notification_fixture "$dir"
+  make_ps "$fakebin"
+  printf '%s' '{"notification_type":"shell_completed","command":"exec ./bin/fm-watch-arm.sh"}' > "$dir/in.json"
+  copilot_watch_receipt_publish "$dir" "$dir" "$dir/state" \
+    || fail "could not publish the watcher receipt"
+  pending="$dir/state/.copilot-watch-arm/pending-context"
+  ln -s "$dir/unwritable-pending-context" "$pending" \
+    || fail "could not block pending-context publication"
+
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh notification < "$dir/in.json")
+  [ -z "$out" ] || fail "failed pending-context publication returned notification context: $out"
+
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  printf '%s' "$stop_out" | jq -e '.decision == "block" and (.reason | contains("FIRSTMATE WATCHER WAKE"))' >/dev/null \
+    || fail "agentStop lost the watcher receipt after pending-context publication failed: $stop_out"
+
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":true}')
+  [ -z "$stop_out" ] || fail "the restored watcher receipt replayed through agentStop: $stop_out"
+  pass "Copilot preserves the agentStop fallback when notification context publication fails"
+}
+
 test_tracked_primary_hook_commands_execute() {
   local dir fakebin hooks cmd out rc args payload reason seen_arm=0 seen_cd=0 seen_subagent=0
   dir="$TMP_ROOT/tracked-primary-hooks"
@@ -1112,6 +1140,7 @@ test_pretool_arm_stands_down_in_linked_task_worktree
 test_copilot_native_policies_bypass_compatibility_stand_down
 test_agent_stop_allows_clean_stop
 test_notification_injects_watcher_followup_only_for_watcher_arm_completion
+test_notification_publish_failure_preserves_agent_stop_fallback
 test_notification_requires_primary_scope
 test_tracked_primary_hook_commands_execute
 test_non_cli_hook_surface_stands_down

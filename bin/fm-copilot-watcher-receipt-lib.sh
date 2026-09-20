@@ -149,8 +149,9 @@ fm_copilot_watch_receipt_validate_claimed() {
   [ "$age" -ge 0 ] && [ "$age" -le "$max_age" ]
 }
 
-fm_copilot_watch_receipt_claim() {
+fm_copilot_watch_receipt_acquire() {
   local root_real home_real state_real dir receipt claimed attempt=0
+  FM_COPILOT_WATCH_RECEIPT_CLAIMED=
   root_real=$(fm_copilot_watch_receipt_real_dir "$1") || return 1
   home_real=$(fm_copilot_watch_receipt_real_dir "$2") || return 1
   state_real=$(fm_copilot_watch_receipt_real_dir "$3") || return 1
@@ -166,10 +167,42 @@ fm_copilot_watch_receipt_claim() {
     [ "$attempt" -lt 100 ] || return 1
   done
   mv -- "$receipt" "$claimed" 2>/dev/null || return 1
-  fm_copilot_watch_receipt_validate_claimed "$claimed" "$root_real" "$home_real" "$state_real"
-  attempt=$?
+  if ! fm_copilot_watch_receipt_validate_claimed "$claimed" "$root_real" "$home_real" "$state_real"; then
+    rm -f -- "$claimed"
+    return 1
+  fi
+  FM_COPILOT_WATCH_RECEIPT_CLAIMED=$claimed
+}
+
+fm_copilot_watch_receipt_commit() {
+  local claimed=${1:-}
+  [ -n "$claimed" ] || return 1
   rm -f -- "$claimed"
-  return "$attempt"
+}
+
+fm_copilot_watch_receipt_restore() {
+  local state_real dir receipt claimed=${2:-}
+  state_real=$(fm_copilot_watch_receipt_real_dir "$1") || return 1
+  dir="$state_real/.copilot-watch-arm"
+  case "$claimed" in "$dir"/.claimed.*) ;; *) return 1 ;; esac
+  [ -f "$claimed" ] && [ ! -L "$claimed" ] || return 1
+  fm_private_data_path_matches "$claimed" file || return 1
+  receipt=$(fm_copilot_watch_receipt_path "$state_real") || return 1
+  if ln "$claimed" "$receipt" 2>/dev/null; then
+    rm -f -- "$claimed"
+    return 0
+  fi
+  if [ -f "$receipt" ] && [ ! -L "$receipt" ] \
+     && fm_private_data_path_matches "$receipt" file; then
+    rm -f -- "$claimed"
+    return 0
+  fi
+  return 1
+}
+
+fm_copilot_watch_receipt_claim() {
+  fm_copilot_watch_receipt_acquire "$@" || return 1
+  fm_copilot_watch_receipt_commit "$FM_COPILOT_WATCH_RECEIPT_CLAIMED"
 }
 
 fm_copilot_watch_pending_path() {
