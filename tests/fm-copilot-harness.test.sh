@@ -975,6 +975,94 @@ test_notification_publish_failure_preserves_agent_stop_fallback() {
   pass "Copilot preserves the agentStop fallback when notification context publication fails"
 }
 
+test_notification_interruption_during_failed_publish_restores_fallback() {
+  local dir fakebin hook_pid attempts stop_out real_chmod real_rm
+  dir="$TMP_ROOT/notification-failed-publish-interruption"
+  fakebin="$dir/fakebin"
+  make_notification_fixture "$dir"
+  make_ps "$fakebin"
+  real_chmod=$(command -v chmod)
+  real_rm=$(command -v rm)
+  cat > "$fakebin/chmod" <<'SH'
+#!/usr/bin/env bash
+case "${2:-}" in
+  */.pending-context.*) exit 1 ;;
+esac
+exec "$FM_TEST_REAL_CHMOD" "$@"
+SH
+  cat > "$fakebin/rm" <<'SH'
+#!/usr/bin/env bash
+"$FM_TEST_REAL_RM" "$@" || exit $?
+case "${!#}" in
+  */.pending-context.*)
+    : > "$FM_TEST_PENDING_REMOVED_MARKER"
+    while [ ! -e "$FM_TEST_PENDING_REMOVED_RELEASE_MARKER" ]; do
+      sleep 0.05
+    done
+    ;;
+esac
+SH
+  chmod +x "$fakebin/chmod" "$fakebin/rm"
+  printf '%s' '{"notification_type":"shell_completed","command":"exec ./bin/fm-watch-arm.sh"}' > "$dir/in.json"
+  copilot_watch_receipt_publish "$dir" "$dir" "$dir/state" \
+    || fail "could not publish the watcher receipt"
+
+  (
+    cd "$dir" || exit 1
+    exec env PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+      FM_TEST_REAL_CHMOD="$real_chmod" FM_TEST_REAL_RM="$real_rm" \
+      FM_TEST_PENDING_REMOVED_MARKER="$dir/removed" \
+      FM_TEST_PENDING_REMOVED_RELEASE_MARKER="$dir/release" \
+      ./bin/fm-copilot-hook.sh notification < "$dir/in.json" > "$dir/notification.out"
+  ) &
+  hook_pid=$!
+  attempts=0
+  while [ ! -e "$dir/removed" ] && kill -0 "$hook_pid" 2>/dev/null && [ "$attempts" -lt 100 ]; do
+    sleep 0.05
+    attempts=$((attempts + 1))
+  done
+  [ -e "$dir/removed" ] || {
+    kill "$hook_pid" 2>/dev/null || true
+    wait "$hook_pid" 2>/dev/null || true
+    fail "notification hook did not reach failed-publication cleanup"
+  }
+  kill -TERM "$hook_pid" 2>/dev/null || fail "could not interrupt failed-publication cleanup"
+  : > "$dir/release"
+  wait "$hook_pid" 2>/dev/null || true
+  rm -f "$fakebin/chmod" "$fakebin/rm"
+
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  printf '%s' "$stop_out" | jq -e '.decision == "block" and (.reason | contains("FIRSTMATE WATCHER WAKE"))' >/dev/null \
+    || fail "failed-publication interruption lost the watcher fallback: $stop_out"
+  pass "Copilot restores fallback when interrupted during failed publication cleanup"
+}
+
+test_notification_rejects_pending_context_directory() {
+  local dir fakebin out stop_out pending
+  dir="$TMP_ROOT/notification-pending-directory"
+  fakebin="$dir/fakebin"
+  make_notification_fixture "$dir"
+  make_ps "$fakebin"
+  printf '%s' '{"notification_type":"shell_completed","command":"exec ./bin/fm-watch-arm.sh"}' > "$dir/in.json"
+  copilot_watch_receipt_publish "$dir" "$dir" "$dir/state" \
+    || fail "could not publish the watcher receipt"
+  pending="$dir/state/.copilot-watch-arm/pending-context"
+  mkdir "$pending" || fail "could not create pending-context directory"
+
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh notification < "$dir/in.json")
+  [ -z "$out" ] || fail "pending-context directory returned notification context: $out"
+  [ -z "$(find "$pending" -mindepth 1 -print -quit)" ] \
+    || fail "notification published context inside the pending-context directory"
+
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  printf '%s' "$stop_out" | jq -e '.decision == "block" and (.reason | contains("FIRSTMATE WATCHER WAKE"))' >/dev/null \
+    || fail "pending-context directory consumed the watcher fallback: $stop_out"
+  pass "Copilot rejects a pending-context directory without consuming fallback"
+}
+
 test_notification_interruption_restores_agent_stop_fallback() {
   local dir fakebin out stop_out hook_pid receipt claimed attempts real_mv
   dir="$TMP_ROOT/notification-interruption"
@@ -1432,6 +1520,8 @@ test_copilot_native_policies_bypass_compatibility_stand_down
 test_agent_stop_allows_clean_stop
 test_notification_injects_watcher_followup_only_for_watcher_arm_completion
 test_notification_publish_failure_preserves_agent_stop_fallback
+test_notification_interruption_during_failed_publish_restores_fallback
+test_notification_rejects_pending_context_directory
 test_notification_interruption_restores_agent_stop_fallback
 test_notification_interruption_after_pending_publish_keeps_single_fallback
 test_pending_publish_signal_at_consumer_visible_rename_keeps_single_delivery

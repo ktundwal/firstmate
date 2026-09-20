@@ -224,27 +224,29 @@ fm_copilot_watch_pending_publish() {  # <state-dir> <encoded-context>
   state_real=$(fm_copilot_watch_receipt_real_dir "$1") || return 1
   dir=$(fm_copilot_watch_receipt_prepare_dir "$state_real") || return 1
   pending=$(fm_copilot_watch_pending_path "$state_real") || return 1
-  [ ! -L "$pending" ] || return 1
+  if [ -e "$pending" ] || [ -L "$pending" ]; then
+    [ -f "$pending" ] && [ ! -L "$pending" ] || return 1
+  fi
   tmp=$(mktemp "$dir/.pending-context.XXXXXX") || return 1
   FM_COPILOT_WATCH_PENDING_STAGED=$tmp
   chmod 600 "$tmp" 2>/dev/null || {
-    rm -f -- "$tmp"
     FM_COPILOT_WATCH_PENDING_STAGED=
+    rm -f -- "$tmp"
     return 1
   }
   printf '%s' "$text" > "$tmp" || {
-    rm -f -- "$tmp"
     FM_COPILOT_WATCH_PENDING_STAGED=
+    rm -f -- "$tmp"
     return 1
   }
   fm_private_data_path_matches "$tmp" file || {
-    rm -f -- "$tmp"
     FM_COPILOT_WATCH_PENDING_STAGED=
+    rm -f -- "$tmp"
     return 1
   }
   mv -f -- "$tmp" "$pending" || {
-    rm -f -- "$tmp"
     FM_COPILOT_WATCH_PENDING_STAGED=
+    rm -f -- "$tmp"
     return 1
   }
   FM_COPILOT_WATCH_PENDING_PUBLISHED=1
