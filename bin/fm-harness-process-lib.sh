@@ -6,8 +6,18 @@
 # tmux liveness/composer identity, and session-lock ancestry.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=bin/fm-windows-process-lib.sh
-. "$SCRIPT_DIR/fm-windows-process-lib.sh"
+if [ -f "$SCRIPT_DIR/fm-windows-process-lib.sh" ]; then
+  # shellcheck source=bin/fm-windows-process-lib.sh
+  . "$SCRIPT_DIR/fm-windows-process-lib.sh"
+else
+  fm_session_pid_valid() {
+    case "${1:-}" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$1" -gt 0 ]
+  }
+  fm_windows_normalize_command() {
+    printf '%s\n' "$1"
+  }
+fi
 
 # Cursor process identity is structurally narrower than the generic harness-name
 # table. Source its owner when present; hermetic fixture roots that do not copy
@@ -25,14 +35,14 @@ fi
 # Known harness command names; extend when a new adapter is verified. omp is
 # anchored exactly like pi: its process name is the bare word `omp` (verified,
 # omp 18.1.11), and a substring match would claim ompd or comp.
-FM_HARNESS_RE='claude|codex|^copilot$|opencode|grok|kimi|^pi$|^pi-signed$|^omp$'
+FM_HARNESS_RE='claude|codex|^copilot$|opencode|grok|^kimi$|^muse$|^muse-bin-[A-Za-z0-9._-]+$|^rovo$|^agy$|^pi$|^pi-signed$|^omp$'
 
 # The harnesses whose exact executable or path COMPONENT is safe evidence.
 # Keep in sync with the path-component checks below rather than FM_HARNESS_RE:
 # copilot is matched only by the exact basename `copilot`, and omp only by the
 # exact basename `omp`, so ordinary paths such as .github/hooks/ or .omp/
 # cannot claim either harness.
-FM_HARNESS_NAMES=(claude codex opencode grok kimi pi-signed pi omp)
+FM_HARNESS_NAMES=(claude codex opencode grok kimi pi-signed pi)
 
 # Print the exact harness name carried by executable path $1 - its own basename
 # or any directory component - or return 1.
@@ -110,7 +120,10 @@ fm_harness_set_match_name() {  # <name>
 }
 
 fm_harness_process_matches_name_surfaces() {  # <comm> <args>
-  local comm=$1 args=$2 base argv0 name
+  local comm=$1 args=$2 base argv0 argv0_base name
+  if [ -r "/proc/$$/winpid" ]; then
+    comm=$(fm_windows_normalize_command "$comm")
+  fi
   args=$(fm_harness_normalize_args "$args")
   base=$(basename -- "$comm")
   if printf '%s' "$base" | grep -qE "$FM_HARNESS_RE"; then
@@ -121,6 +134,9 @@ fm_harness_process_matches_name_surfaces() {  # <comm> <args>
       *opencode*) name=opencode ;;
       *grok*) name=grok ;;
       kimi) name=kimi ;;
+      muse|muse-bin-*) name=muse ;;
+      rovo) name=rovo ;;
+      agy) name=agy ;;
       pi-signed) name=pi-signed ;;
       pi) name=pi ;;
       omp) name=omp ;;
@@ -130,12 +146,18 @@ fm_harness_process_matches_name_surfaces() {  # <comm> <args>
     return 0
   fi
   argv0=${args%% *}
+  argv0_base=${argv0##*/}
   if name=$(fm_harness_path_name "$comm"); then
     :
-  elif fm_harness_copilot_path_matches "$argv0"; then
-    name=copilot
-  elif name=$(fm_harness_path_name "$argv0"); then
-    :
+  else
+    case "$argv0_base" in
+      copilot) name=copilot ;;
+      muse|muse-bin-*) name=muse ;;
+      rovo) name=rovo ;;
+      agy) name=agy ;;
+      omp) name=omp ;;
+      *) name=$(fm_harness_path_name "$argv0" 2>/dev/null || true) ;;
+    esac
   fi
   if [ -n "$name" ]; then
     fm_harness_set_match_name "$name"
@@ -231,6 +253,7 @@ fm_harness_ancestry_pids() {
     elif [ "$extending" -eq 1 ]; then
       break
     fi
+    [ "$pid" -eq 1 ] && break
     pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
     case "$pid" in ''|*[!0-9]*) break ;; esac
     [ "$pid" -ge 1 ] || break
@@ -238,18 +261,25 @@ fm_harness_ancestry_pids() {
   [ "$printed" -eq 1 ]
 }
 
-# Print the one pid that identifies this session when the session lock is being
-# WRITTEN: the outermost pid of the contiguous run.
-fm_harness_ancestry_pid() {
-  local pids pid outermost=''
-  pids=$(fm_harness_ancestry_pids) || return 1
+# Print the last (outermost) pid of ancestry list $1, or return 1 when empty.
+_fm_harness_outermost_pid() {  # <ancestry-pids>
+  local pid outermost=''
   while IFS= read -r pid; do
     [ -n "$pid" ] && outermost=$pid
   done <<EOF
-$pids
+$1
 EOF
   [ -n "$outermost" ] || return 1
   printf '%s\n' "$outermost"
+}
+
+# Print the outermost pid of this session's contiguous harness run for callers
+# that need that ancestry identity. Claude session-lock anchoring may select a
+# more precise model-loop pid in bin/fm-session-lock-lib.sh.
+fm_harness_ancestry_pid() {
+  local pids
+  pids=$(fm_harness_ancestry_pids) || return 1
+  _fm_harness_outermost_pid "$pids"
 }
 
 # True if $1 is a live process that looks like a verified harness.

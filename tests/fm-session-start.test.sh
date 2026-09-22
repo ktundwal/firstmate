@@ -509,23 +509,19 @@ SH
 # run_session_start <home> <root> <path>
 # Drop every harness env marker from bin/fm-harness.sh detect_own so the
 # surrounding interactive shell cannot leak past the suite's fake ps harness.
-# Markers today: CLAUDECODE; COPILOT_CLI plus its session sidecars;
-# CURSOR_AGENT plus CURSOR_INVOKED_AS; GEMINI_CLI; ATLASSIAN_AGENT_TYPE plus
-# ROVODEV_CLI; PI_CODING_AGENT plus FM_PI_HARNESS; GROK_AGENT. codex,
-# opencode, kimi, muse, and omp are ancestry-only here.
+# Markers today: CLAUDECODE (claude), PI_CODING_AGENT plus FM_PI_HARNESS
+# (Pi family), GROK_AGENT (grok).
+# codex and opencode have no env markers (ancestry only). Without this, a local
+# claude/pi/grok session fails cases that pin a different fake harness while CI
+# (no ambient markers) still passes.
 run_session_start() {
   local home=$1 root=$2 path=$3 pi_harness=${4:-}
   if [ -n "$pi_harness" ]; then
-    env -u CLAUDECODE -u COPILOT_CLI -u COPILOT_AGENT_SESSION_ID -u COPILOT_LOADER_PID \
-      -u COPILOT_CLI_BINARY_VERSION -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI \
-      -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI -u GROK_AGENT \
-      PI_CODING_AGENT=true FM_PI_HARNESS="$pi_harness" \
+    env -u CLAUDECODE -u GROK_AGENT PI_CODING_AGENT=true FM_PI_HARNESS="$pi_harness" \
       FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$path" \
       "$SESSION_START"
   else
-    env -u CLAUDECODE -u COPILOT_CLI -u COPILOT_AGENT_SESSION_ID -u COPILOT_LOADER_PID \
-      -u COPILOT_CLI_BINARY_VERSION -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI \
-      -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
       FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$path" \
       "$SESSION_START"
   fi
@@ -534,10 +530,7 @@ run_session_start() {
 run_pi_session_start() {  # <home> <root> <path> [fm-session-start args...]
   local home=$1 root=$2 path=$3
   shift 3
-  env -u CLAUDECODE -u COPILOT_CLI -u COPILOT_AGENT_SESSION_ID -u COPILOT_LOADER_PID \
-    -u COPILOT_CLI_BINARY_VERSION -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI \
-    -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI -u GROK_AGENT \
-    PI_CODING_AGENT=true FM_PI_HARNESS=pi \
+  env -u CLAUDECODE -u GROK_AGENT PI_CODING_AGENT=true FM_PI_HARNESS=pi \
     FM_FAKE_HARNESS_PID="$SESSION_START_TEST_HARNESS_PID" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$path" \
     "$SESSION_START" "$@"
@@ -546,9 +539,7 @@ run_pi_session_start() {  # <home> <root> <path> [fm-session-start args...]
 run_named_harness_session_start() {  # <harness> <home> <root> <path> [fm-session-start args...]
   local harness=$1 home=$2 root=$3 path=$4
   shift 4
-  env -u CLAUDECODE -u COPILOT_CLI -u COPILOT_AGENT_SESSION_ID -u COPILOT_LOADER_PID \
-    -u COPILOT_CLI_BINARY_VERSION -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI \
-    -u ATLASSIAN_AGENT_TYPE -u ROVODEV_CLI -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+  env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
     FM_FAKE_HARNESS="$harness" FM_FAKE_HARNESS_PID="$SESSION_START_TEST_HARNESS_PID" \
     FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$path" \
     "$SESSION_START" "$@"
@@ -2339,6 +2330,61 @@ SH
   pass "instruction baselines require SHA-256 and successful startup completion"
 }
 
+test_windows_lock_identity_records_startup_completion() {
+  local rec root home fakebin runtime identity replacement out
+  rec=$(new_world windows-startup-completion)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_harness "$fakebin" copilot
+  runtime="$TMP_ROOT/windows-startup-completion/runtime"
+  mkdir -p "$runtime/bin"
+  ln -s "$ROOT/docs" "$runtime/docs"
+  for file in "$ROOT"/bin/*.sh; do
+    ln -s "$file" "$runtime/bin/$(basename "$file")"
+  done
+  rm "$runtime/bin/fm-lock.sh"
+  cat > "$runtime/bin/fm-lock.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "${FM_FAKE_WINDOWS_IDENTITY:?}" > "${FM_STATE_OVERRIDE:?}/.lock"
+if [ "${1:-}" = "--identity-out" ]; then
+  printf '%s\n' "$FM_FAKE_WINDOWS_IDENTITY" > "${2:?}"
+fi
+if [ -n "${FM_FAKE_REPLACEMENT_IDENTITY:-}" ]; then
+  printf '%s\n' "$FM_FAKE_REPLACEMENT_IDENTITY" > "$FM_STATE_OVERRIDE/.lock"
+fi
+printf 'lock acquired: harness pid %s\n' "$FM_FAKE_WINDOWS_IDENTITY"
+SH
+  chmod +x "$runtime/bin/fm-lock.sh"
+
+  identity=win:123:456
+  env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    FM_FAKE_HARNESS=copilot FM_FAKE_HARNESS_PID="$SESSION_START_TEST_HARNESS_PID" \
+    FM_FAKE_WINDOWS_IDENTITY="$identity" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" \
+    FM_SESSION_START_STAGE_FILE="$home/state/test-stage" \
+    "$runtime/bin/fm-session-start.sh" --source startup >/dev/null
+
+  [ "$(cat "$home/state/.session-start-complete")" = "$identity" ] \
+    || fail "startup completion did not preserve the Windows lock identity"
+
+  replacement=win:789:1011
+  rm -f "$home/state/.session-start-complete"
+  out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    FM_FAKE_HARNESS=copilot FM_FAKE_HARNESS_PID="$SESSION_START_TEST_HARNESS_PID" \
+    FM_FAKE_WINDOWS_IDENTITY="$identity" FM_FAKE_REPLACEMENT_IDENTITY="$replacement" \
+    FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_ROOT_OVERRIDE="$root" \
+    PATH="$fakebin:$BASE_PATH" FM_SESSION_START_STAGE_FILE="$home/state/test-stage" \
+    "$runtime/bin/fm-session-start.sh" --source startup)
+
+  assert_absent "$home/state/.session-start-complete" \
+    "startup published completion after its Windows lock was replaced immediately after acquisition"
+  assert_contains "$out" "SESSION_START_COMPLETION: not recorded" \
+    "startup did not report completion refusal after immediate Windows lock replacement"
+  pass "Windows lock identities bind startup completion to the identity acquired under the claim guard"
+}
+
 test_reemit_keeps_repair_ownership_with_the_lock_holder() {
   local rec root home fakebin reemit readonly_out holder_pid
   rec=$(new_world reemit-tangle)
@@ -2732,6 +2778,7 @@ test_agents_baseline_stays_at_true_start_and_reemits_on_every_drifted_pi_compact
 test_read_only_pi_compact_refreshes_against_its_own_session_identity
 test_codex_unreachable_reset_sources_do_not_claim_instruction_refresh
 test_agents_baseline_requires_sha256_and_successful_completion
+test_windows_lock_identity_records_startup_completion
 test_reemit_keeps_repair_ownership_with_the_lock_holder
 
 echo "# fm-session-start.test.sh: all assertions passed"

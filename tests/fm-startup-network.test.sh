@@ -386,7 +386,7 @@ EOF
 # lock meanwhile, running the mutating sweeps would sweep underneath that
 # session, so they are refused - and the refusal is reported, not silent.
 test_mutating_sweeps_are_refused_when_the_lock_changed_hands() {
-  local rec home root log report
+  local rec home root log report windows_identity windows_generation
   rec=$(new_world lock-changed)
   IFS='|' read -r home root log <<EOF
 $rec
@@ -407,6 +407,20 @@ EOF
   run_stage "$home" "$root" wait 30 >/dev/null || fail "the lock-authorized worker never published"
   assert_grep 'network=only detect_only=0' "$log" \
     "the worker refused sweeps for the very session that still holds the lock"
+
+  : > "$log"
+  windows_identity=win:123:456
+  windows_generation=windows-owner
+  printf '%s\n' "$windows_identity" > "$home/state/.lock"
+  PATH="$root/bin:$PATH" FM_FAKE_HARNESS_PID="$$" FM_HOME="$home" \
+    FM_ROOT_OVERRIDE="$root" FM_FAKE_BOOTSTRAP_LOG="$log" \
+    bash -c '
+      printf "state=running\npid=%s\nstarted=1\nlocked=1\nphases=probe,sweeps\ngeneration=%s\nlock_pid=%s\n" \
+        "$$" "$1" "$2" > "$3/state/.startup-network.status"
+      exec "$4/bin/fm-startup-network.sh" run --locked 1 --lock-pid "$2" --generation "$1"
+    ' _ "$windows_generation" "$windows_identity" "$home" "$root"
+  assert_grep 'network=only detect_only=0' "$log" \
+    "the worker refused sweeps for an unchanged Windows session identity"
   pass "fm-startup-network: manual callers cannot forge mutation authority"
 }
 

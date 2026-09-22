@@ -41,7 +41,6 @@ fm_windows_copilot_identity() {
     .processes[] | [.Identity, .Path] | @tsv
   ') || return 1
   while IFS=$'\t' read -r identity path; do
-    # jq escapes backslashes in TSV. Process names do not need the command-line fallback here.
     path=${path//\\\\/\\}
     path=$(fm_windows_normalize_command "$path") || return 1
     if fm_harness_process_matches "$path" "$path"; then
@@ -53,8 +52,6 @@ fm_windows_copilot_identity() {
       return 0
     fi
   done <<< "$rows"
-  # MSYS exec can erase intermediate parents. A published PID alone is insufficient:
-  # the native Copilot command must also carry this exact, independently parsed session GUID.
   payload=$(fm_windows_process_query copilot-owner "$COPILOT_LOADER_PID") || return 2
   printf '%s' "$payload" | jq -er 'select(.found == true) | .process.Identity'
 }

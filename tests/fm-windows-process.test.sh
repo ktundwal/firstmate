@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Process-table regression, independent of Windows and installed agent processes.
 set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"

@@ -1090,7 +1090,7 @@ test_server_ensure_scrubs_home_and_harness_identity() {
   PATH="$fb:$PATH" FM_HERDR_SERVER_ENV_LOG="$log" FM_HERDR_SERVER_MARKER="$marker" FM_HERDR_SENTINEL=kept \
     FM_HOME=/tmp/wrong-home FM_ROOT_OVERRIDE=/tmp/wrong-root FM_STATE_OVERRIDE=/tmp/wrong-state \
     FM_DATA_OVERRIDE=/tmp/wrong-data FM_PROJECTS_OVERRIDE=/tmp/wrong-projects FM_CONFIG_OVERRIDE=/tmp/wrong-config \
-    COPILOT_CLI=1 COPILOT_AGENT_SESSION_ID=s1 COPILOT_LOADER_PID=42 COPILOT_CLI_BINARY_VERSION=1 \
+    COPILOT_CLI=1 COPILOT_AGENT_SESSION_ID=copilot-session COPILOT_LOADER_PID=42 COPILOT_CLI_BINARY_VERSION=1.0.0 \
     CURSOR_AGENT=1 CURSOR_INVOKED_AS=cursor-agent CLAUDECODE=1 PI_CODING_AGENT=true FM_PI_HARNESS=pi-signed GROK_AGENT=1 FM_SUPERVISION_MODEL=autoarm \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_server_ensure fmtest' "$ROOT"
   expect_code 0 $? "server_ensure should start under a polluted launcher environment"
@@ -3766,6 +3766,40 @@ test_composer_state_real_text_is_pending() {
   pass "fm_backend_herdr_composer_state: real composer text reads pending"
 }
 
+# Issue #3436: Grok 1.0.5's real bottom border is three columns wider than
+# the aligned top and content rows. Herdr has no cursor anchor, so the old
+# geometry verdict was unknown even when this composer was genuinely idle.
+test_composer_state_grok_oversized_title_preserves_safe_verdicts() {
+  local dir log resp fb out
+  dir="$TMP_ROOT/composer-grok-oversized-title"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  printf '%s\n' \
+    '  ╭──────────────────────────────────────────────────────────────────────────╮' \
+    '  │ ❯                                                                        │' \
+    '  ╰────────────────────────────────────────────────────────── Grok 4.6 (xhigh) ─╯' \
+    '' \
+    '  Shift+Tab:mode  │  Ctrl+x:shortcuts' > "$resp/1.out"
+  printf '%s\n' \
+    '  ╭──────────────────────────────────────────────────────────────────────────╮' \
+    '  │ ❯ deploy the fix                                                         │' \
+    '  ╰────────────────────────────────────────────────────────── Grok 4.6 (xhigh) ─╯' > "$resp/2.out"
+  printf '%s\n' \
+    '  ╭──────────────────────────────────────────────────────────────────────────╮' \
+    '  │ ❯                                                                        │' \
+    '  ╰────────────────────────────────────────────────────────── unknown surface ─╯' > "$resp/3.out"
+  fb=$(make_herdr_fakebin "$dir")
+
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
+  [ "$out" = empty ] || fail "issue #3436's idle Grok/Herdr composer should read empty, got '$out'"
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
+  [ "$out" = pending ] || fail "typed text inside Grok's oversized box should stay pending, got '$out'"
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
+  [ "$out" = unknown ] || fail "an oversized unrecognized title should stay unknown, got '$out'"
+  pass "fm_backend_herdr_composer_state: Grok's exact title overhang is empty while pending and unproved panes remain safe"
+}
+
 # Live-verified incident (2026-07-03, real grok 0.2.82 on herdr, isolated
 # session): typing "/compact" opens the completion popup; the FIRST Enter
 # closes the popup and EXPANDS the composer into an argument-hint placeholder
@@ -5313,6 +5347,7 @@ test_busy_state_unknown_on_no_agent
 test_composer_state_bare_prompt_is_empty
 test_composer_state_styled_placeholder_draft_is_pending
 test_composer_state_real_text_is_pending
+test_composer_state_grok_oversized_title_preserves_safe_verdicts
 test_composer_state_popup_placeholder_fill_is_pending
 test_composer_state_unknown_on_capture_failure
 test_composer_state_unknown_when_no_composer_row_found

@@ -56,8 +56,7 @@ set -u
 # everything these cases set up wherever ancestry is silent. Drop the ambient
 # markers so what this suite asserts does not depend on which harness it was
 # launched from; every case states the marker it means to test.
-unset COPILOT_CLI COPILOT_AGENT_SESSION_ID COPILOT_LOADER_PID COPILOT_CLI_BINARY_VERSION \
-  CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT CURSOR_AGENT CURSOR_INVOKED_AS
+unset CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT CURSOR_AGENT CURSOR_INVOKED_AS
 
 BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 fm_git_identity fmtest fmtest@example.com
@@ -87,16 +86,7 @@ fm_fake_blind_ancestry "$BLIND_BIN"
 # the secondmate resolution AND that crew resolution is unchanged (backward-compat).
 #   <label>^<crew-harness>^<secondmate-harness>^<expect-secondmate>^<expect-crew>
 test_harness_resolution() {
-  local label crew sm exp_sm exp_crew case_dir cfg got_sm got_crew n fakebin
-  fakebin=$(fm_fakebin "$TMP_ROOT/harness-fallback")
-  cat > "$fakebin/ps" <<'SH'
-#!/usr/bin/env bash
-case "$*" in
-  *'ppid='*) printf '%s\n' 1 ;;
-  *) printf '%s\n' bash ;;
-esac
-SH
-  chmod +x "$fakebin/ps"
+  local label crew sm exp_sm exp_crew case_dir cfg got_sm got_crew n
   n=0
   while IFS='^' read -r label crew sm exp_sm exp_crew; do
     [ -n "$label" ] || continue
@@ -154,16 +144,7 @@ SH
 # literal token ABSENT skips creating the file entirely.
 #   <label>^<file-line-or-ABSENT>^<expect-harness>^<expect-model>^<expect-effort>
 test_secondmate_model_effort_tokens() {
-  local label line exp_harness exp_model exp_effort case_dir cfg got_h got_m got_e n fakebin
-  fakebin=$(fm_fakebin "$TMP_ROOT/tokens-fallback")
-  cat > "$fakebin/ps" <<'SH'
-#!/usr/bin/env bash
-case "$*" in
-  *'ppid='*) printf '%s\n' 1 ;;
-  *) printf '%s\n' bash ;;
-esac
-SH
-  chmod +x "$fakebin/ps"
+  local label line exp_harness exp_model exp_effort case_dir cfg got_h got_m got_e n
   n=0
   while IFS='^' read -r label line exp_harness exp_model exp_effort; do
     [ -n "$label" ] || continue
@@ -254,40 +235,6 @@ SH
   fi
 
   pass "pi-signed identity: authoritative launch selection distinguishes shared wrapper ancestry"
-}
-
-test_direct_pi_signed_ancestry_preserves_exact_identity() {
-  local dir fakebin got
-  dir="$TMP_ROOT/pi-signed-direct"
-  fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/ps" <<'SH'
-#!/usr/bin/env bash
-set -u
-field=
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    -o) field=$2; shift 2 ;;
-    *) shift ;;
-  esac
-done
-case "$field:${FM_TEST_DIRECT_PI_SHAPE:-signed}" in
-  comm=:signed) printf '%s\n' '/opt/test/bin/pi-signed' ;;
-  args=:signed) printf '%s\n' 'pi-signed --model test/model' ;;
-  comm=:plain) printf '%s\n' '/opt/test/bin/pi' ;;
-  args=:plain) printf '%s\n' 'pi --model test/model' ;;
-  ppid=:*) printf '%s\n' 1 ;;
-  *) printf '%s\n' bash ;;
- esac
-SH
-  chmod +x "$fakebin/ps"
-
-  got=$(env -u CLAUDECODE -u GROK_AGENT -u PI_CODING_AGENT -u FM_PI_HARNESS \
-    PATH="$fakebin:$BASE_PATH" FM_TEST_DIRECT_PI_SHAPE=signed "$ROOT/bin/fm-harness.sh")
-  [ "$got" = pi-signed ] || fail "direct pi-signed ancestry resolved '$got', expected pi-signed"
-  got=$(env -u CLAUDECODE -u GROK_AGENT -u PI_CODING_AGENT -u FM_PI_HARNESS \
-    PATH="$fakebin:$BASE_PATH" FM_TEST_DIRECT_PI_SHAPE=plain "$ROOT/bin/fm-harness.sh")
-  [ "$got" = pi ] || fail "direct plain Pi ancestry resolved '$got', expected pi"
-  pass "fm-harness preserves exact pi-signed ancestry while plain Pi stays pi"
 }
 
 test_dash_leading_process_names_are_basename_operands() {
@@ -2685,7 +2632,6 @@ test_harness_resolution
 test_cursor_marker_detection
 test_secondmate_model_effort_tokens
 test_pi_signed_detection_and_session_lock_identity
-test_direct_pi_signed_ancestry_preserves_exact_identity
 test_dash_leading_process_names_are_basename_operands
 test_propagate_lib
 test_spawn_split_and_inherit

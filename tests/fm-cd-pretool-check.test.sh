@@ -5,7 +5,7 @@
 # bin/fm-cd-command-policy.mjs is the single owner of the block/allow decision;
 # it reuses the shell classifier owned by bin/fm-arm-command-policy.mjs.
 # bin/fm-cd-pretool-check.sh is the stable transport: it scopes the guard to the
-# real primary checkout, then drives all five harness entry forms. This suite
+# real primary checkout, then drives all six harness entry forms. This suite
 # proves the decision matrix, the harness-output shaping, the primary-checkout
 # scoping (including the deliberate secondmate-home difference from the turn-end
 # guard), the fail-open transport behavior, the prefilter fast path, the
@@ -18,6 +18,10 @@ set -u
 
 fm_git_identity fmtest fmtest@example.invalid
 TMP_ROOT=$(fm_test_tmproot fm-cd-pretool-check)
+HOST_BIN=$(fm_fakebin "$TMP_ROOT/hook-host")
+fm_fake_blind_ancestry "$HOST_BIN"
+PATH="$HOST_BIN:$PATH"
+export PATH
 
 # A primary-shaped checkout: plain (non-worktree) git repo, AGENTS.md, bin/ with
 # the transport plus both policy files (fm-cd-command-policy.mjs imports the
@@ -27,9 +31,8 @@ install_cd_scripts() {
   local dir=$1
   mkdir -p "$dir/bin"
   cp "$ROOT/bin/fm-cd-pretool-check.sh" "$dir/bin/fm-cd-pretool-check.sh"
-  cp "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" \
-     "$ROOT/bin/fm-session-lock-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" "$dir/bin/"
-  cp "$ROOT/bin/fm-windows-process-lib.sh" "$ROOT/bin/fm-windows-process.ps1" "$dir/bin/"
+  cp "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/fm-hook-host-lib.sh"
+  cp "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" "$dir/bin/"
   cp "$ROOT/bin/fm-cd-command-policy.mjs" "$dir/bin/fm-cd-command-policy.mjs"
   cp "$ROOT/bin/fm-arm-command-policy.mjs" "$dir/bin/fm-arm-command-policy.mjs"
   chmod +x "$dir/bin/fm-cd-pretool-check.sh" "$dir/bin/fm-cd-command-policy.mjs"
@@ -189,12 +192,11 @@ run_matrix_entry() {
     [ ! -s "$err_file" ] || fail "$id via $entry allow must leave stderr empty: $(cat "$err_file")"
     return
   fi
-
   if [ "$entry" = copilot ]; then
-    [ "$rc" -eq 0 ] || fail "$id via $entry must deny through Copilot's native stdout object, got exit $rc"
-    [ ! -s "$err_file" ] || fail "$id via $entry deny must leave stderr empty: $(cat "$err_file")"
+    expect_code 0 "$rc" "$id via copilot must return its native decision object"
     jq -e '.permissionDecision == "deny" and (.permissionDecisionReason | test("\\[persistent-cd\\]"))' "$out_file" >/dev/null 2>&1 \
-      || fail "$id via copilot deny must carry Copilot's native decision object on stdout: $(cat "$out_file")"
+      || fail "$id via copilot deny must carry the persistent-cd reason: $(cat "$out_file")"
+    [ ! -s "$err_file" ] || fail "$id via copilot deny must leave stderr empty: $(cat "$err_file")"
     return
   fi
 

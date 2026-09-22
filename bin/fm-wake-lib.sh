@@ -124,9 +124,9 @@ fm_poll_derived_grace() {
 }
 
 # fm_watcher_lock_unheld <state>
-# True when the watcher lock publication is absent, or when its published owner
-# pid record is absent or empty. Any non-empty pid remains held here; its
-# syntax, liveness, ownership metadata, and identity are health concerns.
+# True when the watcher lock or its symlinked owner directory is absent, or when
+# the existing lock records no pid at all. Any non-empty pid remains held here;
+# its syntax, liveness, ownership metadata, and identity are health concerns.
 fm_watcher_lock_unheld() {
   local state=$1 lockdir pid
   lockdir="$state/.watch.lock"
@@ -482,25 +482,6 @@ fm_lock_points_to_owner() {
   [ "$actual" = "$ownerdir" ]
 }
 
-fm_lock_uses_legacy_directory() {
-  case "$_FM_UNAME" in
-    MSYS_NT-*|MINGW*_NT-*) return 0 ;;
-  esac
-  return 1
-}
-
-fm_lock_publication_matches() {  # <lockdir> <owner-path-or-legacy-token>
-  local lockdir=$1 owner=$2 pid
-  case "$owner" in
-    legacy:*)
-      pid=${owner#legacy:}
-      [ -d "$lockdir" ] && [ ! -L "$lockdir" ] || return 1
-      [ "$(cat "$lockdir/pid" 2>/dev/null || true)" = "$pid" ]
-      ;;
-    *) fm_lock_points_to_owner "$lockdir" "$owner" ;;
-  esac
-}
-
 fm_lock_discard_owner() {
   local ownerdir=$1
   [ -n "$ownerdir" ] || return 0
@@ -516,56 +497,11 @@ fm_lock_remove_stray_owner_link() {
   fi
 }
 
-#
-# Only nested directories that prove they were generated owner artifacts are
-# eligible for stale Windows migration cleanup. Anything empty, malformed, or
-# carrying unknown content must make the reclaim refuse and preserve evidence.
-fm_lock_generated_owner_dir_is_removable() {
-  local ownerdir=$1 pid
-  [ -d "$ownerdir" ] && [ ! -L "$ownerdir" ] || return 1
-  [ -f "$ownerdir/pid" ] && [ ! -L "$ownerdir/pid" ] || return 1
-  pid=$(cat "$ownerdir/pid" 2>/dev/null || true)
-  case "$pid" in
-    ''|*[!0-9]*) return 1 ;;
-  esac
-  (
-    shopt -s dotglob nullglob
-    local entry base
-    for entry in "$ownerdir"/*; do
-      base=${entry##*/}
-      case "$base" in
-        pid|fm-home|pid-identity|role|watcher-path)
-          [ -f "$entry" ] && [ ! -L "$entry" ] || exit 1
-          ;;
-        *)
-          exit 1
-          ;;
-      esac
-    done
-  )
-}
-
-fm_lock_remove_generated_owner_dirs() {
-  local lockdir=$1 base nested
-  base=$(basename "$lockdir")
-  # Migration cleanup must be all-or-nothing: if any nested artifact is
-  # malformed or foreign, preserve every nested entry as evidence.
-  for nested in "$lockdir/$base.owner."*; do
-    [ -e "$nested" ] || continue
-    fm_lock_generated_owner_dir_is_removable "$nested" || return 1
-  done
-  for nested in "$lockdir/$base.owner."*; do
-    [ -e "$nested" ] || continue
-    fm_lock_clean_known_files "$nested"
-    rmdir "$nested" 2>/dev/null || return 1
-  done
-}
-
 fm_lock_claim_blocked_by_steal() {
   local lockdir=$1 allowed_steal_owner=${2:-} steal
   steal="$lockdir.steal"
   [ -e "$steal" ] || [ -L "$steal" ] || return 1
-  if [ -n "$allowed_steal_owner" ] && fm_lock_publication_matches "$steal" "$allowed_steal_owner"; then
+  if [ -n "$allowed_steal_owner" ] && fm_lock_points_to_owner "$steal" "$allowed_steal_owner"; then
     return 1
   fi
   return 0
@@ -597,30 +533,9 @@ fm_lock_claim() {
   return 0
 }
 
-fm_lock_try_create_legacy() {
-  local lockdir=$1 allowed_steal_owner=${2:-} mypid
-  FM_LOCK_OWNER_DIR=
-  mkdir "$lockdir" 2>/dev/null || return 1
-  if ! fm_lock_prepare_owner "$lockdir"; then
-    fm_lock_discard_owner "$lockdir"
-    return 1
-  fi
-  if fm_lock_claim_blocked_by_steal "$lockdir" "$allowed_steal_owner"; then
-    fm_lock_discard_owner "$lockdir"
-    return 1
-  fi
-  mypid=${BASHPID:-$$}
-  FM_LOCK_OWNER_DIR="legacy:$mypid"
-  return 0
-}
-
 fm_lock_try_create() {
   local lockdir=$1 allowed_steal_owner=${2:-} ownerdir
   FM_LOCK_OWNER_DIR=
-  if fm_lock_uses_legacy_directory; then
-    fm_lock_try_create_legacy "$lockdir" "$allowed_steal_owner"
-    return $?
-  fi
   ownerdir=$(fm_lock_owner_dir "$lockdir") || return 1
   if [ -e "$lockdir" ] || [ -L "$lockdir" ]; then
     fm_lock_discard_owner "$ownerdir"
@@ -653,7 +568,6 @@ fm_lock_remove_path() {
     [ -n "$ownerdir" ] && fm_lock_discard_owner "$ownerdir"
     return 0
   fi
-  fm_lock_remove_generated_owner_dirs "$lockdir" || return 1
   fm_lock_clean_known_files "$lockdir"
   rmdir "$lockdir" 2>/dev/null
 }
@@ -1056,7 +970,7 @@ fm_lock_try_acquire() {
     FM_LOCK_OWNER_DIR=
     return 1
   fi
-  if ! fm_lock_publication_matches "$steal" "$steal_owner"; then
+  if ! fm_lock_points_to_owner "$steal" "$steal_owner"; then
     fm_lock_release "$steal"
     FM_LOCK_HELD_PID=$(cat "$lockdir/pid" 2>/dev/null || true)
     FM_LOCK_OWNER_DIR=
@@ -1209,7 +1123,8 @@ fm_lock_release() {
   fi
   pid=$(cat "$lockdir/pid" 2>/dev/null || true)
   [ "$pid" = "$current" ] || return 0
-  fm_lock_remove_path "$lockdir" || true
+  fm_lock_clean_known_files "$lockdir"
+  rmdir "$lockdir" 2>/dev/null || true
 }
 
 fm_meta_lock_path() {
@@ -2242,43 +2157,71 @@ fm_wake_status_mark_current() {  # <state> <status-file>
   fm_wake_status_seen_commit "$1" "$2" "$size" "$ident"
 }
 
-# Guarded self-announced status append - the one dedup primitive for a status
-# line THIS home's own machinery writes as bookkeeping it has already presented
-# in the very turn or tick that writes it (an answerer-closes resolved line, a
-# pending-reply escalation close, a captain-held transfer). Such a close must
-# not wake the session that wrote it, so this appends the line and then
-# advances the watcher's seen marker to cover exactly the appended bytes and
-# nothing else. The advance is provenance-gated and fails toward waking:
-#   - the marker advances ONLY when the file's pre-append signature matched the
-#     recorded seen marker (every earlier byte was already announced or
-#     deliberately absorbed), AND the post-append size equals the pre-append
-#     size plus exactly the appended bytes (no foreign write interleaved);
-#   - on ANY other condition - missing marker, pending foreign bytes, an
-#     interleaved writer, an unreadable signature - the line is still appended
-#     but the marker is left alone, so the watcher surfaces the file normally.
+# Guarded self-announced status append - the one dedup primitive for the status
+# lines THIS home's own machinery writes as bookkeeping it has already presented
+# in the very turn or tick that writes them (answerer-closes resolved lines, a
+# pending-reply escalation close, captain-held transfers). Such a close must
+# not wake the session that wrote it, so this appends one command's lines
+# together and then advances the watcher's seen marker across the appended
+# bytes and no byte this home has not already read. The advance is
+# provenance-gated and fails toward waking:
+#   - the marker advances only when this home already read every pre-append
+#     byte, the post-append size equals that size plus exactly the appended
+#     bytes (no foreign write interleaved), AND the watcher's own span
+#     classifier finds no actionable event from its classified offset through
+#     the post-append end (classifying after the append keeps the just-closed
+#     decisions from counting as live);
+#   - "already read" means the watcher's classified seen offset equals the
+#     pre-append size, or the OPEN DECISIONS fold cursor does and every
+#     non-blank line the watcher has not classified yet is a keyed
+#     needs-decision or blocked line, which OPEN DECISIONS listed as open. The
+#     fold reads bytes it never prints, so a worker's `failed:`, `paused:`,
+#     `working:`, `resolved` or verb-less line there must still wake, and so
+#     must a captain-held line, which raises the watcher's needs-decision
+#     side-band;
+#   - on ANY other condition - a missing file, pending foreign bytes, an
+#     interleaved writer, an unreadable size or identity - the lines are still
+#     appended but the marker is left alone, so the watcher surfaces the file
+#     normally.
 # A later, different line from any other writer grows the size past the marker
 # and wakes as before: task identity alone can never suppress new content.
 # Returns 0 appended and self-announced, 1 appended but left for the watcher
 # (the safe direction), 2 the append itself failed.
-fm_wake_status_append_self_announced() {  # <state> <status-file> <line>
-  local state=$1 file=$2 line=$3 marker pre_sig='' pre_size='' pre_ident='' post_size post_ident
+fm_wake_status_append_self_announced() {  # <state> <status-file> <line>...
+  local state=$1 file=$2 line appended=0 pre_size='' pre_ident='' post_size post_ident classified folded lag span_rc=0
   local LC_ALL=C
+  shift 2
   _fm_wake_require_classify || return 1
-  marker=$(fm_wake_signal_seen_path "$state" "$file")
   if [ -e "$file" ]; then
-    pre_sig=$(fm_wake_signal_sig "$file") || pre_sig=''
     pre_size=$(_fm_status_file_size "$file") || pre_size=''
     pre_ident=$(_fm_open_decisions_file_ident "$file") || pre_ident=''
   fi
-  printf '%s\n' "$line" >> "$file" || return 2
-  [ -n "$pre_sig" ] || return 1
-  status_presentation_marker_reported_matches "$marker" "$pre_sig" || return 1
-  [ "$(status_presentation_marker_offset "$marker" "$file")" = "$pre_size" ] || return 1
+  printf '%s\n' "$@" >> "$file" || return 2
   post_size=$(_fm_status_file_size "$file") || return 1
   post_ident=$(_fm_open_decisions_file_ident "$file") || return 1
   case "$pre_size$post_size" in ''|*[!0-9]*) return 1 ;; esac
   [ -n "$pre_ident" ] && [ "$post_ident" = "$pre_ident" ] || return 1
-  [ "$post_size" -eq $((pre_size + ${#line} + 1)) ] || return 1
+  for line in "$@"; do appended=$((appended + ${#line} + 1)); done
+  [ "$post_size" -eq $((pre_size + appended)) ] || return 1
+  classified=$(fm_wake_signal_seen_size "$state" "$file")
+  if [ "$classified" != "$pre_size" ]; then
+    folded=$(status_open_decisions_cursor_offset "$file") || folded=0
+    [ "$folded" = "$pre_size" ] && [ "$classified" -lt "$pre_size" ] || return 1
+    lag=$(_fm_status_read_span "$file" "$classified" "$((pre_size - classified))") || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in *[![:space:]]*) ;; *) continue ;; esac
+      case "$(status_line_verb "$line")" in
+        needs-decision|blocked) ;;
+        *) return 1 ;;
+      esac
+      _fm_key_before_colon "$line" || _fm_key_at_note_head "$line" >/dev/null || return 1
+      _fm_decision_key "$line" >/dev/null || return 1
+    done <<EOF
+$lag
+EOF
+  fi
+  status_span_first_actionable_record "$file" "$classified" >/dev/null || span_rc=$?
+  [ "$span_rc" -eq 1 ] || return 1
   fm_wake_status_seen_commit "$state" "$file" "$post_size" "$post_ident" || return 1
   return 0
 }

@@ -20,11 +20,11 @@
 # describes THIS event and cannot be inherited: Cursor stamps every hook payload
 # with its own `cursor_version`, and Claude never emits that key.
 #
-# The signal for Copilot is the ACTUAL host process ancestry, ignoring every
-# inherited marker. A Claude session started from a Copilot shell can carry
-# COPILOT_CLI=1, so environment-only gating would suppress Claude's real hooks.
-# The ancestry walk keeps an actual Claude process authoritative while letting a
-# genuine Copilot host stand down.
+# The signal for Copilot requires BOTH its exported marker and actual host
+# process ancestry. A Claude session started from a Copilot shell can retain
+# COPILOT_CLI=1, so the marker only avoids unnecessary ancestry walks when it
+# is absent; a positive marker still needs the ancestry proof before a real
+# Claude hook may stand down.
 #
 # Fail direction: when the host cannot be determined, the caller RUNS. A
 # redundant run under a foreign host wastes work; a skipped run under Claude
@@ -36,10 +36,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 fm_hook_actual_host() {
   local pid=$$ comm args host
-  if [ -r "/proc/$$/winpid" ] && [ "${COPILOT_CLI:-}" = 1 ] && [ -n "${COPILOT_LOADER_PID:-}" ]; then
-    if fm_windows_copilot_identity >/dev/null; then echo copilot; else echo unknown; fi
-    return
-  fi
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
     comm=$(ps -o comm= -p "$pid" 2>/dev/null) || break
     args=$(ps -o args= -p "$pid" 2>/dev/null) || args=
@@ -52,9 +48,10 @@ fm_hook_actual_host() {
           ;;
       esac
     fi
+    [ "$pid" -eq 1 ] && break
     pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
     case "$pid" in ''|*[!0-9]*) break ;; esac
-    [ "$pid" -gt 1 ] || break
+    [ "$pid" -ge 1 ] || break
   done
   printf 'unknown\n'
 }
@@ -67,6 +64,11 @@ fm_hook_payload_is_foreign_host() {  # <payload>
         ' >/dev/null 2>&1; then
     return 0
   fi
+  # Copilot exports this marker to every hook process. It is not sufficient to
+  # identify the host by itself because a nested Claude can inherit it, but its
+  # absence proves this is not a Copilot-hosted duplicate and avoids a process
+  # ancestry walk on every ordinary Claude/Codex/Grok hook invocation.
+  [ "${COPILOT_CLI:-}" = 1 ] || return 1
   host=$(fm_hook_actual_host)
   [ "$host" = copilot ]
 }

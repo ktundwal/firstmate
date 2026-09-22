@@ -926,10 +926,9 @@ test_pi_large_sessionstart_digest_is_delivered_loudly() {
     "$ROOT/.pi/extensions/lib/fm-sessionstart-supervisor.mjs" "$fixture/.pi/extensions/lib/"
   cp "$ROOT/bin/fm-sessionstart-run.sh" "$ROOT/bin/fm-sessionstart-nudge.sh" \
     "$ROOT/bin/fm-primary-scope-lib.sh" "$ROOT/bin/fm-gate-refuse-lib.sh" \
-    "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" \
+    "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-session-lock-lib.sh" \
+    "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" \
     "$ROOT/bin/fm-operational-input.sh" "$fixture/bin/"
-  cp "$ROOT/bin/fm-windows-process-lib.sh" "$ROOT/bin/fm-windows-process.ps1" \
-    "$ROOT/bin/fm-session-lock-lib.sh" "$fixture/bin/"
   cat > "$fixture/bin/fm-session-start.sh" <<'SH'
 #!/usr/bin/env bash
 printf 'PI_LARGE_DIGEST_PREFIX\n'

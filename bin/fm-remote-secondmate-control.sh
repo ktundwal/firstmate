@@ -158,7 +158,7 @@ cmd_launch() {
   validate_id "$id"
   validate_home "$id"
   case "$harness" in
-    claude|codex|copilot|opencode|pi|pi-signed|grok|kimi|cursor) ;;
+    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor) ;;
     *) die "unverified remote secondmate harness: $harness" ;;
   esac
   case "$effort" in -|low|medium|high|xhigh|max|ultra) ;; *) die "invalid remote secondmate effort: $effort" ;; esac
@@ -230,7 +230,7 @@ cmd_relaunch() {
   validate_id "$id"
   validate_home "$id"
   case "$harness" in
-    claude|codex|copilot|opencode|pi|pi-signed|grok|kimi|cursor) ;;
+    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor) ;;
     *) die "unverified remote secondmate harness: $harness" ;;
   esac
   case "$effort" in -|default|low|medium|high|xhigh|max|ultra) ;; *) die "invalid remote secondmate effort: $effort" ;; esac
@@ -359,7 +359,7 @@ cmd_sync() {
     || die "remote home could not import $commit from this host's Firstmate copy or the home's origin; run /updatefirstmate to refresh this host's copy, or push that commit first"
   # ff_target publishes its verdict in FF_STATUS, so it must run in THIS shell.
   report=$(mktemp "${TMPDIR:-/tmp}/fm-remote-sync.XXXXXX") || die "cannot stage the sync report"
-  ff_target "$TARGET_HOME" "remote home" "$commit" yes yes > "$report" 2>&1
+  ff_target "$TARGET_HOME" "remote home" "$commit" yes yes "$id" "$TARGET_HOME/state" > "$report" 2>&1
   out=$(cat "$report")
   rm -f "$report"
   case "$FF_STATUS" in

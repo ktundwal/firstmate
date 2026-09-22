@@ -58,15 +58,13 @@ A file named both by `-e` and by auto-discovery loads twice (two factory calls, 
 ### Run-tier source vocabulary and context-reset injection
 
 The run tier depends on three facts only the vendor can supply: the session-open source it reports, whether hook stdout reaches model context on a context-RESET open rather than only a cold one, and whether a worker the hook detaches survives the hook returning.
-For Claude, Codex, and Pi, the first two were measured on 2026-08-05 against a throwaway Firstmate-shaped lab carrying each harness's own tracked registration with a recorder standing in for `bin/fm-sessionstart-run.sh`.
-GitHub Copilot CLI was added later through its own native primary live guard on 2026-09-02, which verified `additionalContext` delivery against Copilot CLI 1.0.83-3 instead of the lab recorder.
-Each measured open printed a source-stamped token, and the model was asked to quote that token back, so producing hook stdout could never be mistaken for delivering it.
+The first two were measured on 2026-08-05 against a throwaway Firstmate-shaped lab carrying each harness's own tracked registration with a recorder standing in for `bin/fm-sessionstart-run.sh`.
+Each open printed a source-stamped token, and the model was asked to quote that token back, so producing hook stdout could never be mistaken for delivering it.
 The third is recorded below.
 
 | Harness | Version verified | Cold open | Context reset | Context-preserving reopen |
 | --- | --- | --- | --- | --- |
 | Claude | 2.1.222 (Claude Code) | `source=startup`, token quoted back in both `-p` and the TUI | `/clear` reports `source=clear` and `/compact` reports `source=compact`; both re-injected a fresh token that the model quoted back | `claude --continue` reports `source=resume` |
-| GitHub Copilot CLI | 1.0.83-3 | `source=new` under `copilot -p`, with `additionalContext` quoted back by the model | Not exercised; `preCompact` remains notification-only | Not exercised; native `sessionStart` documents `resume` and the portable adapter routes it through the shared owner |
 | Codex | codex-cli 0.146.0 | `source=startup` under `codex exec`, token quoted back | Not reachable from a tracked project registration; see the limit below | `codex exec resume --last` reports `source=resume` |
 | Pi | 0.82.0 | `source=startup`, token quoted back in both `-p` and the TUI | `/new` raises `session_start` reason `new`, which the extension maps to `clear`; `/compact` raises `session_compact`, and both freshly injected source-stamped tokens were quoted back | `pi -c` reports reason `startup`, not `resume` |
 
@@ -181,7 +179,6 @@ SECONDMATE_SYNC: secondmate ios: skipped: remote inheritance failed on remote-ma
 The unreachable route was preserved rather than relaunched in both runs, and the result surfaced durably as a queued `check: startup-network` wake once the worker finished.
 
 Codex and Pi were not installed as run-tier labs in this measurement, so their evidence for this fact is NOT refreshed; `tests/fm-sessionstart-hook-live-e2e.test.sh` asserts it for each installed Claude, Codex exec, and Pi adapter and is the command that refreshes their record.
-Copilot's separate primary live guard covers native session-start `additionalContext` delivery and the native `agentStop` continuation path, but it does not claim this detached-worker measurement.
 Cursor's separate primary live guard covers its source-free session-open transport but does not claim this detached-worker measurement.
 A harness that did reap the worker degrades loudly rather than silently: the leftover record reads as an abandoned run needing a rerun, and the next session start re-derives every finding, because these sweeps are idempotent detectors.
 
@@ -196,12 +193,10 @@ FM_PI_SESSIONSTART_RACE_LIVE_E2E=1 tests/fm-sessionstart-hook-live-e2e.test.sh
 FM_SESSIONSTART_INSTRUCTION_REFRESH_LIVE_E2E=1 tests/fm-sessionstart-instruction-refresh-live-e2e.test.sh
 FM_PI_LIVE_E2E=1 tests/fm-pi-primary-live-e2e.test.sh
 FM_OPENCODE_LIVE_E2E=1 tests/fm-opencode-primary-live-e2e.test.sh
-FM_COPILOT_LIVE_E2E=1 tests/fm-copilot-primary-live-e2e.test.sh
 ```
 
 `tests/fm-sessionstart-hook-live-e2e.test.sh` is the command that refreshes the Claude, Codex exec, and Pi table above; run it after upgrading any of those harnesses.
 It reports an absent adapter explicitly, asserts Pi compaction rather than noting it, and refuses to pass when none of those three adapters was installed.
-Copilot's refresh command is `FM_COPILOT_LIVE_E2E=1 tests/fm-copilot-primary-live-e2e.test.sh`, recorded in the GitHub Copilot CLI rows above.
 Cursor's refresh command is `FM_CURSOR_PRIMARY_LIVE_E2E=1 tests/fm-cursor-primary-live-e2e.test.sh`, recorded under [Cursor primary park](#cursor-primary-park-2026-08-13).
 
 The Ahoy first-message boundary was reverified on 2026-07-22 with Pi 0.81.1 and OpenCode 1.17.18.
@@ -210,9 +205,8 @@ The detailed reconciliation and task chronology stay in the private audit report
 
 ## Semantic busy state
 
-The original per-adapter semantic-source set behind [`bin/fm-busy-lib.sh`](../../bin/fm-busy-lib.sh) was live-verified on 2026-07-28 against firstmate-launched workers wired exactly as `fm-spawn` writes them.
+The per-adapter semantic sources behind [`bin/fm-busy-lib.sh`](../../bin/fm-busy-lib.sh) were live-verified on 2026-07-28 against firstmate-launched workers wired exactly as `fm-spawn` writes them.
 Each pass polled `state/<id>.busy-state` while a real turn ran.
-GitHub Copilot CLI was added later through the same spawn-installed worker-hook path, but its evidence here is the portable writer-and-classifier coverage in `tests/fm-busy-state.test.sh` and `tests/fm-busy-adapter-wiring.test.sh`, not a separate live harness run.
 
 | Harness | Version verified | Semantic source | Observed result |
 | --- | --- | --- | --- |
@@ -220,7 +214,7 @@ GitHub Copilot CLI was added later through the same spawn-installed worker-hook 
 | omp | 18.1.11 | Extension `agent_start` / `agent_end` without `willContinue` | Live Herdr scout on `openai-codex/gpt-6-astra` (2026-09-05): the spawn seed `busy source=fm-spawn`, then `busy source=omp-ext event=agent-start`, then `idle source=omp-ext event=agent-end` at the natural end of the brief; a steer through `fm-send` reopened `busy … agent-start`, and a control-plane interrupt closed it with `idle … agent-end` (omp fires `agent_end` on an interrupted turn). `ctx.isIdle()` is deliberately not consulted because it reads false at a natural TUI `agent_end`. |
 | OpenCode | 1.17.18 | Plugin `session.status` | In a real TUI pane: seed, then `busy source=opencode-plugin event=session-busy`, then `idle source=opencode-plugin event=session-status-idle`. |
 | Claude | 2.1.220 (Claude Code) | Hooks `UserPromptSubmit`, `Stop`, `StopFailure`, `SessionEnd` | `UserPromptSubmit` fired for the argv launch prompt and each steer, and `Stop` closed every completed turn. A mid-stream Escape interrupt fired no closing hook, which is why the firstmate-controlled clear exists. `StopFailure` and `SessionEnd` are wired from the four hook names present in the installed binary; only the abnormal paths they cover were not reproduced live. |
-| GitHub Copilot CLI | 1.0.83-3 (portable hook contract) | Repository `userPromptSubmitted`, `agentStop`, and `sessionEnd` hooks keyed by the parent session id | The generated worker hook reopens `busy source=copilot-hook` only for the owning top-level session, settles `idle source=copilot-hook` on `agentStop` and `sessionEnd`, clears its latched session binding after settlement, ignores child-session stops, and still frees the next top-level session after turn-end-touch or idle-write failures. |
+| Copilot | 1.0.86-2 | Repository hooks `userPromptSubmitted`, `agentStop`, `sessionEnd` | On 2026-09-17 an isolated real worker recorded `busy source=copilot-hook event=user-prompt-submitted`, created the requested file, then recorded `idle source=copilot-hook event=agent-stop` and touched the turn-end marker; Ctrl+C cancelled a real `sleep 120` and wrote a typed `abort` event with `reason=user_initiated` to Copilot's session log but fired no closing worker hook, leaving the semantic record busy until a later normal turn settled it. |
 | Codex | codex-cli 0.145.0 | None usable | See below; classifies `unknown codex-unverified`. |
 | Kimi (standalone) | not installed | None usable | No binary on `PATH`, so the gate stays closed and it classifies `unknown kimi-unverified`. |
 | Grok | 0.2.112 | Isolated rendered-tail fallback | Retained unconverted; the approved audit could not credit a live structured-lifecycle run. |
@@ -243,17 +237,19 @@ Deterministic entry points:
 tests/fm-busy-state.test.sh
 tests/fm-busy-adapter-wiring.test.sh
 tests/fm-crew-state.test.sh
+tests/fm-copilot-harness.test.sh
+tests/fm-spawn-dispatch-profile.test.sh
 ```
 
 ## Turn-end guard
 
-The blocking and bounded-follow-up mechanisms were validated across eight harnesses on 2026-07-08 through 2026-09-05, with Claude's replacement Stop-owned path revalidated on 2026-07-24, Cursor's stop-hook park validated on 2026-08-13, Copilot's native block decision validated on 2026-09-02, and omp's blocking `session_stop` hook validated on 2026-09-05.
+The blocking and bounded-follow-up mechanisms were validated across eight harnesses on 2026-07-08 through 2026-09-19, with Copilot CLI 1.0.87-0's `agentStop` receipt fallback and attached watcher continuation verified on 2026-09-19.
 
 | Harness | Version verified | Mechanism | Observed result |
 | --- | --- | --- | --- |
 | Claude | 2.1.219 | Cooperative blocking `Stop` guard plus `asyncRewake` auto-arm | A fresh unsupervised session ran session start first, reclaimed a stale dead-owner lock, completed two tokenless rewake cycles with no model arm command or guard continuation, and left a competing live owner unchanged. |
-| GitHub Copilot CLI | 1.0.83-3 | Native `agentStop` block decision | The first stop returned `decision=block`, the model ran one genuine continuation, and the final payload reported `stop_hook_active=true` before allowing the turn to finish. |
 | Codex | 0.142.1 | Blocking `Stop` hook | Hook process root stayed anchored to the trusted checkout and one continuation ran. |
+| Copilot | 1.0.87-0 | Native blocking `agentStop` hook plus receipt fallback | `FM_COPILOT_LIVE_E2E=1 bin/fm-test-run.sh tests/fm-copilot-primary-live-e2e.test.sh` passed session-start context, watcher-arm denial, bounded stop continuation, and exactly one watcher wake/drain/acknowledgement on 2026-09-19 even when the CLI did not invoke the notification hook. |
 | OpenCode | 1.17.6 | Passive `session.idle` callback | Throwing could not block, while `promptAsync` scheduled one TUI follow-up; headless remained fail-open. |
 | Pi | 0.80.5 | Passive `agent_settled` callback | Exactly one guard follow-up ran for an unhealthy cycle, with no recursion across tool turns. |
 | omp | 18.1.11 | Blocking `session_stop` hook returning `{ continue: true, additionalContext }` | In the isolated rpc lab (2026-09-05), the successor watcher was frozen with `SIGSTOP` until its beacon passed the lab `FM_GUARD_GRACE` of 20s while its arm child stayed attached (a killed watcher closes its arm child and the extension re-arms before the guard can fire); the next turn end raised the guard, the guard spy recorded `rc=2` followed by a stop carrying `stop_hook_active: true`, omp compelled a continuation carrying the `turn-end-guard` operational text, the `fm_watch_arm_omp` invocation count then rose to at least two, and a live watcher held the home lock after the thaw; the flagged stop was allowed, so exactly one continuation ran. `session_stop` never fired for an interrupted turn. |
@@ -331,9 +327,34 @@ That inertness result is scoped to the builds it exercised: it did not establish
 
 The secondmate-home scope and manual-repair wake path were measured with Claude Code 2.1.207 on 2026-07-12, when a native background completion re-invoked the idle model with no human input.
 The current Stop-owned main/secondmate inclusion and child-worktree exclusion are covered deterministically by `tests/fm-claude-stop-autoarm.test.sh`.
-Session-lock ownership in `bin/fm-session-lock-lib.sh` is decided against a session's whole contiguous harness ancestry rather than one chosen pid, so the Stop auto-arm reaches its lock owner wherever that owner sits: the outermost pid of Claude Code's multi-level `bg-spare` hook worker chain, or an inner pid when a harness-named daemon parents the session.
+Session-lock ownership in `bin/fm-session-lock-lib.sh` is decided against a session's whole contiguous harness ancestry rather than one chosen pid, so the Stop auto-arm reaches its lock owner wherever that owner sits: a pid of Claude Code's multi-level `bg-spare` hook worker chain, or an inner pid when a harness-named daemon parents the session.
+A background Claude session whose transient helper chain is recycled loses that contiguity while its recorded owner stays alive, so the library also accepts a trusted same-session id: `CLAUDE_CODE_SESSION_ID` counts only when `CLAUDE_PID` is a Claude-shaped member of the current run, it must equal the id `bin/fm-lock.sh` recorded in `state/.lock-session`, and the recorded pid must still be a live harness, while every weaker combination (no id, no sidecar, an untrusted id, a different id, a dead recorded pid) leaves the ancestry verdict unchanged.
+For such a session `bin/fm-lock.sh` records `CLAUDE_PID` on lock line 1 instead of the outermost chain pid, so a shared daemon or front-end that outlives the session never keeps a dead session's lock alive, and a same-session confirmation never rewrites a live line 1.
 Harness identity is read from the executable path and `argv[0]` as well as the command basename, because Claude Code's native installer names the per-session executable by its version (`.../share/claude/versions/2.1.220`): `ps -o comm=` reports that path on macOS and the bare version string on Linux, and neither basename names a harness.
 `tests/fm-session-lock-ancestry.test.sh` pins both platforms' reporting semantics behind a deterministic process table and runs the real Stop auto-arm in version-named, daemon-parented, and combined real process trees.
+The same suite drives the ancestry and session-id signals apart in that table, asserting the divergence itself so no case is vacuous, and runs a real orphaned front-end, daemon, pty-host, and bg-spare tree whose daemon is ended mid-run: the same id keeps arming through the real `bin/fm-lock.sh`, `bin/fm-claude-stop-autoarm.sh`, and `bin/fm-turnend-guard.sh --claude` with lock line 1 and the sidecar untouched, a different id, an untrusted id, and no id each keep the live-owner refusal naming the recorded id, and the dead front-end is reclaimed onto the spare's pid rather than the outermost pty-host.
+`tests/fm-turnend-foreign-owner-repro.py` keeps the genuinely foreign live owner as the negative control and adds the same-id positive control.
+Both ran on 2026-09-18 on macOS with bash 3.2.57 as the fake harness interpreter:
+
+```sh
+tests/fm-session-lock-ancestry.test.sh
+tests/fm-turnend-foreign-owner-arm-fix.test.sh
+```
+
+Observed output, bounded to the lines the new coverage adds:
+
+```text
+ok - session-lock: a trusted same-session id keeps owning a recycled background chain, and nothing weaker does
+ok - session-lock: a trusted id anchors the lock on the model-loop process, anything else on the outermost pid
+ok - session-lock e2e: a background session keeps its lock and its supervision across a recycled helper chain
+same-session acquisition rc=0 stdout='lock acquired: harness pid 41994\nlock_rc=0\n' stderr=''
+other-session acquisition rc=0 stdout='lock_rc=1\n' stderr='error: another live firstmate session holds the lock (pid 41994, session synthetic-same); operate read-only until resolved\n'
+FIXED same-session id owns the lock; a different id is still foreign
+COMPLETE
+```
+
+No live unattended Claude background session ran on the verifying machine: that topology is documented by the real process listings in issues #3902, #2314, #3398, and #4066, and the coverage above is the structural predicate plus those executable fixtures, not a live pass.
+[`sessionstart-nudge.md`](../sessionstart-nudge.md#shared-wrapper-and-safety) owns the nudge wrapper's separate ancestry check and its redundant-nudge behavior after helper-chain recycling.
 `tests/fm-watch-arm.test.sh` runs real watcher and arm cycles against durable on-disk state to verify that a delivered reason survives until post-handling acknowledgement and stops replaying after acknowledgement, while an unrelated queue append cannot make a watcher cycle that delivered nothing look successful.
 The same suite ingests a keyed remote-secondmate parent reply through the real adapter, establishes the incremental OPEN DECISIONS cursor, interrupts supervision, and proves re-arm replays every unacknowledged queue row plus the still-open decision through the ordinary drain path.
 It also covers decision-only recovery, interrupted handling, handling-window generation reuse, non-fatal moved-generation acknowledgement with sequence-bounded consumption, and a persistent successor remaining live after recovery is acknowledged.
@@ -358,7 +379,6 @@ Current entry points:
 tests/fm-turnend-guard.test.sh
 tests/fm-supervision-instructions.test.sh
 FM_PI_LIVE_E2E=1 tests/fm-pi-primary-live-e2e.test.sh
-FM_COPILOT_LIVE_E2E=1 tests/fm-copilot-primary-live-e2e.test.sh
 FM_GROK_STOP_LIVE_E2E=1 FM_GROK_NATIVE_BIN="$native_grok" FM_GROK_LEGACY_BIN="$pre_native_grok" tests/fm-grok-stop-live-e2e.test.sh
 ```
 
@@ -456,7 +476,7 @@ fm-claude-stop-autoarm: ok
 
 ## Watcher continuity
 
-The cross-harness evidence combines the 2026-07-17 live pass with later per-harness reruns: Claude's replacement Stop-owned path on 2026-07-24, Copilot's attached-task notification path on 2026-09-02, and omp's extension-owned continuity path on 2026-09-05, all against isolated project and home state.
+The cross-harness evidence combines the 2026-07-17 live pass with Claude's replacement Stop-owned path revalidated on 2026-07-24, all against isolated project and home state.
 No credential material was copied into a fixture.
 
 ```text
@@ -465,19 +485,20 @@ codex-cli 0.144.4
 OpenCode 1.17.18
 Pi 0.80.10
 grok 0.2.103 (89c3d36fb6f1) [stable]
-GitHub Copilot CLI 1.0.83-3
-omp 18.1.11
+GitHub Copilot CLI 1.0.86-2
 ```
 
 | Harness | Exact opt-in command | Observed guarantee |
 | --- | --- | --- |
 | Claude | `FM_CLAUDE_LIVE_E2E=1 tests/fm-claude-stop-autoarm-live-e2e.test.sh` | Session start reclaimed a stale owner before two Stop-owned cycles, and a competing live owner prevented arm, rewake, epoch write, or lock replacement. |
 | Codex | `FM_CODEX_LIVE_E2E=1 tests/fm-codex-continuity-live-e2e.test.sh` | The one-second foreground checkpoint returned without switching to the arm wrapper. |
+| Copilot | `FM_COPILOT_LIVE_E2E=1 bin/fm-test-run.sh tests/fm-copilot-primary-live-e2e.test.sh` | The current CLI completed the attached watcher task, and the single-use receipt was consumed by either the notification hook or the next `agentStop` to force the typed wake, drain, and acknowledgement exactly once. |
 | OpenCode | `FM_OPENCODE_LIVE_E2E=1 tests/fm-opencode-primary-live-e2e.test.sh` | A verified successor existed before prompt handling, with no model re-arm or turn-end fallback. |
 | Pi | `FM_PI_LIVE_E2E=1 tests/fm-pi-primary-live-e2e.test.sh` | One initial tool call led to extension-owned successors and clean child retirement on exit. |
 | omp | `FM_OMP_LIVE_E2E=1 tests/fm-omp-primary-live-e2e.test.sh` | One initial `fm_watch_arm_omp` invocation (the openai-codex model reaches extension tools through omp's `xd://` virtual-file bridge, a `write` to `xd://fm_watch_arm_omp`, counted as the same invocation) started a live watcher; an actionable close spawned a ledger-linked successor and woke main exactly once; the lab is reaped by path, and omp 18.1.11 did not exit within 30s of its rpc stdin closing, recorded as a note. omp 18.1.11, 2026-09-05. |
 | Grok | `FM_GROK_LIVE_E2E=1 tests/fm-grok-continuity-live-e2e.test.sh` | Native task completion surfaced the actionable close and the cycle ledger recorded `reason=actionable-signal`. |
-| GitHub Copilot CLI | `FM_COPILOT_LIVE_E2E=1 tests/fm-copilot-primary-live-e2e.test.sh` | A background Bash task emitted `notification_type=shell_completed`, the notification injected a follow-up, and the model resumed only after the task wrote its completion marker. |
+
+The portable Copilot notification cases pin both `notification_type` and `notificationType`, FirstMate title casing, exact title/message correlation, and the single-use root/home-bound receipt; the live 1.0.87-0 run additionally proved the receipt-backed `agentStop` fallback when no notification-hook payload arrived.
 
 Pi 0.81.1 repeated the continuity and clean-exit lifecycle on 2026-07-23 after the Calm presentation changes.
 

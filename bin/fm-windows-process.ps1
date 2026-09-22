@@ -1,7 +1,4 @@
 #!/usr/bin/env pwsh
-# Read native process evidence only. Never acquire locks or signal processes.
-# Usage: fm-windows-process.ps1 -Operation ancestry -Value <Windows PID>
-#        fm-windows-process.ps1 -Operation inspect -Value win:<PID>:<creation ticks>
 [CmdletBinding()]
 param(
     [ValidateSet('ancestry', 'inspect', 'copilot-owner')]
@@ -27,7 +24,6 @@ function Get-FmWindowsAncestry {
             $termination = 'unreadable-process'
             break
         }
-        # Windows retains a dead parent's PID. A later process using that PID is not the parent.
         if ($row.CreatedTicks -gt $childCreated) { $termination = 'reused-parent'; break }
         $rows.Add($row)
         $childCreated = $row.CreatedTicks

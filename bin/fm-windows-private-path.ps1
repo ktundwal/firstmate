@@ -1,6 +1,4 @@
 #!/usr/bin/env pwsh
-# Read-only private-data ACL validation. Never changes permissions.
-# Usage: fm-windows-private-path.ps1 -Path <absolute local path> -Kind file|directory
 [CmdletBinding()]
 param(
     [string]$Path,

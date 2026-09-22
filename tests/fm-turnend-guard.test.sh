@@ -187,12 +187,10 @@ install_guard_scripts() {
   cp "$ROOT/bin/fm-turnend-guard-grok.sh" "$dir/bin/fm-turnend-guard-grok.sh"
   cp "$ROOT/bin/fm-operational-input.sh" "$dir/bin/fm-operational-input.sh"
   cp "$ROOT/bin/fm-supervision-instructions.sh" "$dir/bin/fm-supervision-instructions.sh"
-  cp "$ROOT/bin/fm-harness.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$dir/bin/"
-  cp "$ROOT/bin/fm-windows-process-lib.sh" "$ROOT/bin/fm-windows-process.ps1" "$dir/bin/"
-  cp "$ROOT/bin/fm-primary-scope-lib.sh" "$dir/bin/fm-primary-scope-lib.sh"
-  cp "$ROOT/bin/fm-supervision-lib.sh" "$dir/bin/fm-supervision-lib.sh"
-  cp "$ROOT/bin/fm-wake-lib.sh" "$dir/bin/fm-wake-lib.sh"
-  cp "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/fm-hook-host-lib.sh"
+  cp "$ROOT/bin/fm-harness.sh" "$ROOT/bin/fm-harness-process-lib.sh" \
+    "$ROOT/bin/fm-session-lock-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" \
+    "$ROOT/bin/fm-primary-scope-lib.sh" "$ROOT/bin/fm-supervision-lib.sh" \
+    "$ROOT/bin/fm-wake-lib.sh" "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/"
   mkdir -p "$dir/docs"
   cp -R "$ROOT/docs/supervision-protocols" "$dir/docs/supervision-protocols"
   chmod +x "$dir/bin/fm-turnend-guard.sh" "$dir/bin/fm-turnend-guard-grok.sh" "$dir/bin/fm-operational-input.sh" "$dir/bin/fm-supervision-instructions.sh" "$dir/bin/fm-harness.sh"
@@ -367,7 +365,7 @@ test_hook_non_claude_health_ignores_claude_budget_contention() {
   dir=$(make_primary_dir "$TMP_ROOT/hook-non-claude-budget-contention")
   home=$(cd "$dir" && pwd)
   : > "$dir/state/task1.meta"
-  sleep 60 &
+  sleep 300 &
   pid=$!
   identity=$(watcher_identity "$dir" "$pid") || {
     kill "$pid" 2>/dev/null || true
@@ -379,12 +377,12 @@ test_hook_non_claude_health_ignores_claude_budget_contention() {
   printf 'session=claude-episode\ncount=3\nepoch=9\n' > "$dir/state/.turnend-claude-blocks"
   printf 'notice-state\n' > "$dir/state/.claude-autoarm-failure-notified"
   printf 'alarm-state\n' > "$dir/state/.claude-autoarm-failure-alarmed"
-  sleep 60 &
+  sleep 300 &
   holder=$!
   mkdir -p "$dir/state/.turnend-claude-blocks.lock"
   printf '%s\n' "$holder" > "$dir/state/.turnend-claude-blocks.lock/pid"
   while IFS='|' read -r harness payload; do
-    out=$(printf '%s' "$payload" | FM_HOME="$home" bash "$dir/bin/fm-turnend-guard.sh" 2>&1); status=$?
+    out=$(printf '%s' "$payload" | PATH="$BLIND_BIN:$PATH" FM_HOME="$home" bash "$dir/bin/fm-turnend-guard.sh" 2>&1); status=$?
     expect_code 0 "$status" "$harness healthy path must ignore Claude budget-lock contention"
     [ -z "$out" ] || fail "$harness healthy path produced output: $out"
     [ "$(cat "$dir/state/.turnend-claude-blocks")" = $'session=claude-episode\ncount=3\nepoch=9' ] \
@@ -494,7 +492,7 @@ test_hook_ignores_repo_state_when_fm_home_set() {
   home="$TMP_ROOT/hook-fm-home-quiet"
   mkdir -p "$home/state"
   : > "$dir/state/task1.meta"
-  out=$(printf '{"stop_hook_active":false}' | FM_HOME="$home" bash "$dir/bin/fm-turnend-guard.sh" 2>&1); status=$?
+  out=$(printf '{"stop_hook_active":false}' | PATH="$BLIND_BIN:$PATH" FM_HOME="$home" bash "$dir/bin/fm-turnend-guard.sh" 2>&1); status=$?
   expect_code 0 "$status" "hook must ignore repo-root state when FM_HOME selects another state dir"
   [ -z "$out" ] || fail "hook produced output from stale repo-root state despite FM_HOME: $out"
   pass "fm-turnend-guard: ignores stale repo-root state when FM_HOME is set"
@@ -715,14 +713,16 @@ test_hook_silent_without_stdin() {
 }
 
 test_hook_runs_fast() {
-  local dir start elapsed_s
+  local dir start elapsed_s home
   dir=$(make_primary_dir "$TMP_ROOT/hook-timing")
+  home=$(cd "$dir" && pwd)
   : > "$dir/state/task1.meta"
   start=$SECONDS
-  run_hook "$dir" false >/dev/null
+  printf '{"stop_hook_active":false}' | PATH="$BLIND_BIN:$PATH" FM_HOME="$home" \
+    bash "$dir/bin/fm-turnend-guard.sh" --copilot >/dev/null 2>&1
   elapsed_s=$((SECONDS - start))
-  [ "$elapsed_s" -lt 3 ] || fail "hook took ${elapsed_s}s, expected well under a second (generous 3s CI margin)"
-  pass "fm-turnend-guard: runs well under the generous timing margin (${elapsed_s}s)"
+  [ "$elapsed_s" -lt 3 ] || fail "Copilot hook took ${elapsed_s}s, expected well under a second (generous 3s CI margin)"
+  pass "fm-turnend-guard: Copilot path runs well under the generous timing margin (${elapsed_s}s)"
 }
 
 test_grok_adapter_forces_one_resume_when_unhealthy() {
@@ -889,10 +889,10 @@ test_tracked_claude_entries_inert_under_grok() {
   command -v jq >/dev/null 2>&1 || fail "test host must provide jq"
   dir="$TMP_ROOT/claude-entries-grok-inert"
   mkdir -p "$dir/bin" "$dir/.claude"
-  : > "$dir/AGENTS.md"
-  cp "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-claude-compat-hook.sh" "$dir/bin/"
-  cp "$ROOT/bin/fm-windows-process-lib.sh" "$ROOT/bin/fm-windows-process.ps1" "$dir/bin/"
+  printf '# fixture\n' > "$dir/AGENTS.md"
   cp "$ROOT/.claude/settings.json" "$dir/.claude/settings.json"
+  cp "$ROOT/bin/fm-claude-compat-hook.sh" "$ROOT/bin/fm-hook-host-lib.sh" \
+    "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" "$dir/bin/"
   for script in fm-turnend-guard.sh fm-claude-stop-autoarm.sh fm-sessionstart-run.sh \
     fm-arm-pretool-check.sh fm-cd-pretool-check.sh fm-subagent-pretool-check.sh; do
     printf '#!/usr/bin/env bash\nprintf ran >> %q\n' "$dir/invoked" > "$dir/bin/$script"
@@ -908,21 +908,15 @@ test_tracked_claude_entries_inert_under_grok() {
 
   while IFS= read -r cmd; do
     [ -n "$cmd" ] || continue
-    target=$(printf '%s\n' "$cmd" | awk '
-      {
-        for (i = 1; i < NF; i++) {
-          if ($i ~ /fm-claude-compat-hook\.sh/) {
-            target = $(i + 1)
-          }
-        }
-      }
-      END {
-        gsub(/"/, "", target)
-        print target
-      }
-    ')
-    [ -n "$target" ] || target=$(printf '%s\n' "$cmd" | sed -n 's|.*/bin/\([a-z0-9-]*\.sh\).*|\1|p')
-    [ -n "$target" ] || fail "could not identify the target script of tracked entry: $cmd"
+    case "$cmd" in
+      *fm-subagent-pretool-check.sh*) target=fm-subagent-pretool-check.sh ;;
+      *fm-turnend-guard.sh*) target=fm-turnend-guard.sh ;;
+      *fm-claude-stop-autoarm.sh*) target=fm-claude-stop-autoarm.sh ;;
+      *fm-sessionstart-run.sh*) target=fm-sessionstart-run.sh ;;
+      *fm-arm-pretool-check.sh*) target=fm-arm-pretool-check.sh ;;
+      *fm-cd-pretool-check.sh*) target=fm-cd-pretool-check.sh ;;
+      *) fail "could not identify the target script of tracked entry: $cmd" ;;
+    esac
 
     # Native Claude: EVERY tracked entry must still reach its script, or a guard
     # has silently disarmed Claude's own protection.
@@ -1230,7 +1224,6 @@ install_integrated_autoarm() {
   cp "$ROOT/bin/fm-wake-lib.sh" "$dir/bin/fm-wake-lib.sh"
   cp "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/fm-hook-host-lib.sh"
   cp "$ROOT/bin/fm-harness-process-lib.sh" "$dir/bin/fm-harness-process-lib.sh"
-  cp "$ROOT/bin/fm-windows-process-lib.sh" "$ROOT/bin/fm-windows-process.ps1" "$dir/bin/"
   cp "$ROOT/bin/fm-session-lock-lib.sh" "$dir/bin/fm-session-lock-lib.sh"
   cp "$ROOT/bin/fm-cursor-lib.sh" "$dir/bin/fm-cursor-lib.sh"
   cp "$ROOT/bin/fm-lock.sh" "$dir/bin/fm-lock.sh"

@@ -10,10 +10,9 @@
 # fleet-touching command itself, can sit blind for hours.
 # This script is push-based: verified harness turn-end hooks invoke it every time
 # the primary is about to end a turn.
-# Claude and Codex block directly by preserving exit status 2 and stderr.
-# Copilot's adapter translates the same exit-2 predicate into its native
-# decision object.
-# OpenCode and pi adapters use the same predicate and force one bounded
+# Claude and Codex can block directly by preserving exit status 2 and stderr.
+# Copilot's adapter translates that predicate into its native decision object.
+# OpenCode and Pi adapters use the same predicate and force one bounded
 # follow-up because their turn-end events are passive. Grok delegates native
 # blocking when its running Stop payload advertises that capability, with one
 # bounded resume fallback for payloads from pre-native processes. Cursor calls
@@ -68,7 +67,11 @@
 # auto-arm (bin/fm-claude-stop-autoarm.sh), which fires on the same Stop event:
 #   1. a live identity-matched watcher with a fresh beacon - or, in away mode, a
 #      live identity-matched daemon with a fresh beacon - allows immediately;
-#   2. otherwise wait briefly (FM_CLAUDE_AUTOARM_SYNC_WAIT_MS, default 800ms)
+#   2. an unhealthy session with a verified live session-lock owner it does not
+#      own under the shared ancestry-or-trusted-id verdict exits with a read-only
+#      diagnostic instead of blocking a session that cannot repair supervision
+#      without stealing ownership;
+#   3. otherwise wait briefly (FM_CLAUDE_AUTOARM_SYNC_WAIT_MS, default 800ms)
 #      for the auto-arm to claim this home (a live OPEN generation claim in the
 #      state/.claude-autoarm-epoch ledger - fm_autoarm_claim_open - or a legacy
 #      build's lock-holding claim under the legacy abandonment proof) or to
@@ -77,7 +80,7 @@
 #      without consuming a continuation, so one event epoch yields exactly one recovery turn;
 #      the first fresh exhausted-failure epoch preserves the bounded progression,
 #      while later fresh failed epochs consume it instead of resetting it;
-#   3. only when neither materializes is the auto-arm genuinely absent: re-block
+#   4. only when neither materializes is the auto-arm genuinely absent: re-block
 #      with the repair banner, bounded to FM_CLAUDE_TURNEND_BLOCK_BUDGET
 #      (default 3) consecutive blocks per session - safely below Claude Code's
 #      hard 8-consecutive-block override - then allow one loud attended
@@ -119,8 +122,6 @@ done
 . "$SCRIPT_DIR/fm-supervision-lib.sh"
 # shellcheck source=bin/fm-primary-scope-lib.sh
 . "$SCRIPT_DIR/fm-primary-scope-lib.sh"
-# shellcheck source=bin/fm-hook-host-lib.sh
-. "$SCRIPT_DIR/fm-hook-host-lib.sh"
 
 # Read the whole turn-end hook payload once; never block on unreadable/absent
 # stdin.
@@ -132,14 +133,15 @@ PAYLOAD=$(cat 2>/dev/null || true)
 # loop-guard field, so we must never block - fail open, not noisy.
 command -v jq >/dev/null 2>&1 || exit 0
 
-# A Cursor primary also loads the tracked Claude settings, and Cursor's own
-# registration owns its turn boundary through bin/fm-turnend-guard-cursor.sh,
-# which calls this guard back with --cursor. Without that flag a Cursor-delivered
-# payload is the Claude-compatibility duplicate and must not create a second
-# continuation path (docs/turnend-guard.md "Harness integrations").
-if [ "$CURSOR_MODE" -eq 0 ] && [ "$COPILOT_MODE" -eq 0 ] \
-   && fm_hook_payload_is_foreign_host "$PAYLOAD"; then
-  exit 0
+# The native Cursor and Copilot registrations, and Claude's validated
+# compatibility wrapper, pass an explicit mode after establishing their host.
+# Only a legacy/default entry still needs to classify the payload and ancestry
+# here before it may act, which avoids sourcing the process-identity stack twice
+# on every native turn boundary.
+if [ "$CLAUDE_MODE" -eq 0 ] && [ "$CURSOR_MODE" -eq 0 ] && [ "$COPILOT_MODE" -eq 0 ]; then
+  # shellcheck source=bin/fm-hook-host-lib.sh
+  . "$SCRIPT_DIR/fm-hook-host-lib.sh"
+  fm_hook_payload_is_foreign_host "$PAYLOAD" && exit 0
 fi
 
 STOP_HOOK_ACTIVE=$(printf '%s' "$PAYLOAD" | jq -r '
@@ -172,6 +174,10 @@ fm_primary_scope_matches "$FM_ROOT" "$STATE" || exit 0
 # --- the actual predicate ----------------------------------------------------
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+if [ "$CLAUDE_MODE" -eq 1 ]; then
+  # shellcheck source=bin/fm-session-lock-lib.sh
+  . "$SCRIPT_DIR/fm-session-lock-lib.sh"
+fi
 
 BUDGET_FILE="$STATE/.turnend-claude-blocks"
 BUDGET_LOCK="$STATE/.turnend-claude-blocks.lock"
@@ -222,13 +228,25 @@ if [ "$(fm_path_age "$STATE/.last-watcher-beat")" -lt "$AFK_GRACE" ] \
 fi
 
 block_stop() {
-  local afk x_mode reason rule
+  local afk x_mode reason rule repair_harness=
   afk=0
   [ -e "$STATE/.afk" ] && afk=1
   x_mode=0
   [ -f "$CONFIG/x-mode.env" ] && x_mode=1
-  reason=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --afk "$afk" --x-mode "$x_mode" --repair-line 2>/dev/null \
-    || printf '%s\n' 'tasks in flight, no live watcher - repair missing watcher supervision according to the session-start operating block before ending the turn')
+  if [ "$CLAUDE_MODE" -eq 1 ]; then
+    repair_harness=claude
+  elif [ "$COPILOT_MODE" -eq 1 ]; then
+    repair_harness=copilot
+  elif [ "$CURSOR_MODE" -eq 1 ]; then
+    repair_harness=cursor
+  fi
+  if [ -n "$repair_harness" ]; then
+    reason=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --harness "$repair_harness" --afk "$afk" --x-mode "$x_mode" --repair-line 2>/dev/null \
+      || printf '%s\n' 'tasks in flight, no live watcher - repair missing watcher supervision according to the session-start operating block before ending the turn')
+  else
+    reason=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --afk "$afk" --x-mode "$x_mode" --repair-line 2>/dev/null \
+      || printf '%s\n' 'tasks in flight, no live watcher - repair missing watcher supervision according to the session-start operating block before ending the turn')
+  fi
   rule='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
   {
     printf '●%s\n' "$rule"
@@ -250,6 +268,18 @@ block_stop() {
   } >&2
   exit 2
 }
+
+# Another verified live session owns the home lock under the shared
+# ancestry-or-trusted-id verdict. This session is read-only and cannot arm or
+# repair supervision without
+# stealing ownership, so blocking its Stop would create an impossible loop.
+# Report the ownership conflict as a diagnostic and let this turn end safely;
+# the owning session remains responsible for restoring the watcher.
+if [ "$CLAUDE_MODE" -eq 1 ] && fm_session_lock_foreign_owner_live "$STATE"; then
+  printf '{"systemMessage":"FIRSTMATE SUPERVISION IS OWNED BY ANOTHER LIVE SESSION: this read-only session cannot and should not arm or repair the watcher (lock owner pid %s). Allowing this turn to end safely; the owning session must restore supervision."}\n' \
+    "$FM_SESSION_LOCK_FOREIGN_OWNER_PID"
+  exit 0
+fi
 
 if [ "$CLAUDE_MODE" -eq 0 ]; then
   block_stop

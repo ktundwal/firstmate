@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Native Windows regression: bind this real Copilot session, never a bare MSYS PID.
 set -u
 
 # shellcheck source=tests/lib.sh

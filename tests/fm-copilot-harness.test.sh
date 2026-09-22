@@ -431,9 +431,10 @@ test_session_lock_identity_matches_copilot() {
 make_hook_fixture() {
   local dir=$1 guard_status=${2:-0}
   mkdir -p "$dir/bin"
-  cp "$HOOK" "$WATCH_RECEIPT_LIB" "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-session-lock-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" "$ROOT/bin/fm-primary-scope-lib.sh" "$dir/bin/"
-  cp "$ROOT/bin/fm-windows-process-lib.sh" "$ROOT/bin/fm-windows-process.ps1" \
-     "$ROOT/bin/fm-private-path-lib.sh" "$ROOT/bin/fm-windows-private-path.ps1" "$dir/bin/"
+  cp "$HOOK" "$WATCH_RECEIPT_LIB" "$ROOT/bin/fm-private-path-lib.sh" "$ROOT/bin/fm-windows-private-path.ps1" \
+    "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-windows-process-lib.sh" \
+    "$ROOT/bin/fm-windows-process.ps1" "$ROOT/bin/fm-session-lock-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" \
+    "$ROOT/bin/fm-primary-scope-lib.sh" "$dir/bin/"
   chmod +x "$dir/bin/fm-copilot-hook.sh"
   cat > "$dir/bin/fm-sessionstart-run.sh" <<'SH'
 #!/usr/bin/env bash
@@ -560,8 +561,9 @@ make_claude_compat_fixture() {
   mkdir -p "$dir/bin" "$dir/.claude"
   git -C "$dir" init -q
   : > "$dir/AGENTS.md"
-  cp "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-session-lock-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" "$ROOT/bin/fm-claude-compat-hook.sh" "$dir/bin/"
-  cp "$ROOT/bin/fm-windows-process-lib.sh" "$ROOT/bin/fm-windows-process.ps1" "$dir/bin/"
+  cp "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-windows-process-lib.sh" \
+    "$ROOT/bin/fm-windows-process.ps1" "$ROOT/bin/fm-session-lock-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" \
+    "$ROOT/bin/fm-claude-compat-hook.sh" "$dir/bin/"
   cp "$ROOT/.claude/settings.json" "$dir/.claude/settings.json"
   cat > "$dir/bin/fm-sessionstart-run.sh" <<'SH'
 #!/usr/bin/env bash
@@ -747,21 +749,26 @@ make_notification_fixture() {
   mkdir -p "$dir/bin" "$dir/state"
   git -C "$dir" init -q
   : > "$dir/AGENTS.md"
-  cp "$HOOK" "$WATCH_RECEIPT_LIB" "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-session-lock-lib.sh" \
+  cp "$HOOK" "$WATCH_RECEIPT_LIB" "$ROOT/bin/fm-private-path-lib.sh" "$ROOT/bin/fm-windows-private-path.ps1" \
+     "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-windows-process-lib.sh" \
+     "$ROOT/bin/fm-windows-process.ps1" "$ROOT/bin/fm-session-lock-lib.sh" \
      "$ROOT/bin/fm-cursor-lib.sh" "$ROOT/bin/fm-primary-scope-lib.sh" \
      "$ROOT/bin/fm-operational-input.sh" "$ROOT/bin/fm-arm-command-policy.mjs" "$dir/bin/"
-  cp "$ROOT/bin/fm-windows-process-lib.sh" "$ROOT/bin/fm-windows-process.ps1" \
-     "$ROOT/bin/fm-private-path-lib.sh" "$ROOT/bin/fm-windows-private-path.ps1" "$dir/bin/"
+  cat > "$dir/bin/fm-turnend-guard.sh" <<'SH'
+#!/usr/bin/env bash
+cat >/dev/null
+exit 0
+SH
+  chmod +x "$dir/bin/fm-turnend-guard.sh"
   chmod +x "$dir/bin/fm-copilot-hook.sh" "$dir/bin/fm-operational-input.sh"
 }
 
 test_notification_injects_watcher_followup_only_for_watcher_arm_completion() {
-  local dir fakebin out receipt no_node_path stale sibling other_home
+  local dir fakebin out stop_out receipt no_node_path stale sibling other_home
   dir="$TMP_ROOT/notification-watcher"
   fakebin="$dir/fakebin"
-  mkdir -p "$dir"
-  make_ps "$fakebin"
   make_notification_fixture "$dir"
+  make_ps "$fakebin"
 
   mkdir -p "$dir/config"
   : > "$dir/config/x-mode.env"
@@ -775,10 +782,20 @@ test_notification_injects_watcher_followup_only_for_watcher_arm_completion() {
     ./bin/fm-copilot-hook.sh notification < "$dir/in.json")
   [ -z "$out" ] || fail "a command-bearing watcher completion without receipt or success evidence must stay inert, got: $out"
 
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  printf '%s' "$stop_out" | jq -e '.decision == "block" and (.reason | contains("FIRSTMATE WATCHER WAKE"))' >/dev/null \
+    || fail "agentStop did not deliver the persisted watcher follow-up: $stop_out"
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":true}')
+  [ -z "$stop_out" ] || fail "the consumed watcher follow-up replayed through agentStop: $stop_out"
   printf '%s' '{"notification_type":"shell_completed","command":"[ -f config/x-mode.env ] && . config/x-mode.env; exec ./bin/fm-watch-arm.sh","success":true}' > "$dir/command-success-without-receipt.json"
   out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
     ./bin/fm-copilot-hook.sh notification < "$dir/command-success-without-receipt.json")
-  assert_watcher_followup "$out" "Copilot command-bearing watcher notification without receipt but with success evidence"
+  [ -z "$out" ] || fail "a structured-success watcher completion without a receipt must stay inert, got: $out"
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh notification < "$dir/command-success-without-receipt.json")
+  [ -z "$out" ] || fail "a repeated structured-success watcher completion without a receipt must stay inert, got: $out"
 
   printf '%s' '{"notification_type":"shell_completed","command":"[ -f config/x-mode.env ] && . config/x-mode.env; exec ./bin/fm-watch-arm.sh","success":false}' > "$dir/command-explicit-failure.json"
   out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
@@ -829,6 +846,12 @@ test_notification_injects_watcher_followup_only_for_watcher_arm_completion() {
   out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
     ./bin/fm-copilot-hook.sh notification < "$dir/live-shape-the.json")
   assert_watcher_followup "$out" "Copilot alternate live watcher title"
+  printf '%s' '{"notificationType":"SHELL_COMPLETED","hook_event_name":"Notification","title":"Arm the FirstMate watcher","message":"Shell command \"Arm the FirstMate watcher\" (shellId: firstmate-watch.v2) has completed successfully. Use read_bash with shellId \"firstmate-watch.v2\" to retrieve the output.","command":null,"commandLine":null,"command_line":null}' > "$dir/live-shape-camel-named.json"
+  copilot_watch_receipt_publish "$dir" "$dir" "$dir/state" || fail "could not publish a camelCase watcher receipt"
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh notification < "$dir/live-shape-camel-named.json")
+  assert_watcher_followup "$out" "Copilot camelCase notification with FirstMate casing and named shell id"
+
 
   sibling="$TMP_ROOT/notification-watcher-sibling"
   mkdir -p "$sibling/config"
@@ -902,7 +925,7 @@ test_notification_injects_watcher_followup_only_for_watcher_arm_completion() {
   out=$(cd "$dir" && PATH="$fakebin:$no_node_path" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
     ./bin/fm-copilot-hook.sh notification < "$dir/live-shape.json")
   assert_watcher_followup "$out" "Copilot title-only watcher notification without node"
-  pass "Copilot notifications accept receiptless command success evidence but still require receipts for title-only payloads"
+  pass "Copilot notifications require single-use watcher receipts for command and title payloads"
 }
 
 test_notification_requires_primary_scope() {
@@ -911,17 +934,424 @@ test_notification_requires_primary_scope() {
   fakebin="$dir/fakebin"
   mkdir -p "$dir/bin"
   make_ps "$fakebin"
-  cp "$HOOK" "$WATCH_RECEIPT_LIB" "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-session-lock-lib.sh" \
+  cp "$HOOK" "$WATCH_RECEIPT_LIB" "$ROOT/bin/fm-private-path-lib.sh" "$ROOT/bin/fm-windows-private-path.ps1" \
+     "$ROOT/bin/fm-hook-host-lib.sh" "$ROOT/bin/fm-harness-process-lib.sh" "$ROOT/bin/fm-windows-process-lib.sh" \
+     "$ROOT/bin/fm-windows-process.ps1" "$ROOT/bin/fm-session-lock-lib.sh" \
      "$ROOT/bin/fm-cursor-lib.sh" "$ROOT/bin/fm-primary-scope-lib.sh" \
      "$ROOT/bin/fm-operational-input.sh" "$ROOT/bin/fm-arm-command-policy.mjs" "$dir/bin/"
-  cp "$ROOT/bin/fm-windows-process-lib.sh" "$ROOT/bin/fm-windows-process.ps1" \
-     "$ROOT/bin/fm-private-path-lib.sh" "$ROOT/bin/fm-windows-private-path.ps1" "$dir/bin/"
   chmod +x "$dir/bin/fm-copilot-hook.sh" "$dir/bin/fm-operational-input.sh"
   printf '%s' '{"notification_type":"shell_completed","command":"exec bin/fm-watch-arm.sh"}' > "$dir/in.json"
   out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
     ./bin/fm-copilot-hook.sh notification < "$dir/in.json")
   [ -z "$out" ] || fail "notification hook must stay inert outside a genuine Firstmate primary, got: $out"
   pass "Copilot notification stands down outside genuine primary scope"
+}
+
+test_notification_publish_failure_preserves_agent_stop_fallback() {
+  local dir fakebin out stop_out pending
+  dir="$TMP_ROOT/notification-publish-failure"
+  fakebin="$dir/fakebin"
+  make_notification_fixture "$dir"
+  make_ps "$fakebin"
+  printf '%s' '{"notification_type":"shell_completed","command":"exec ./bin/fm-watch-arm.sh"}' > "$dir/in.json"
+  copilot_watch_receipt_publish "$dir" "$dir" "$dir/state" \
+    || fail "could not publish the watcher receipt"
+  pending="$dir/state/.copilot-watch-arm/pending-context"
+  ln -s "$dir/unwritable-pending-context" "$pending" \
+    || fail "could not block pending-context publication"
+
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh notification < "$dir/in.json")
+  [ -z "$out" ] || fail "failed pending-context publication returned notification context: $out"
+
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  printf '%s' "$stop_out" | jq -e '.decision == "block" and (.reason | contains("FIRSTMATE WATCHER WAKE"))' >/dev/null \
+    || fail "agentStop lost the watcher receipt after pending-context publication failed: $stop_out"
+
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":true}')
+  [ -z "$stop_out" ] || fail "the restored watcher receipt replayed through agentStop: $stop_out"
+  pass "Copilot preserves the agentStop fallback when notification context publication fails"
+}
+
+test_notification_interruption_during_failed_publish_restores_fallback() {
+  local dir fakebin hook_pid attempts stop_out real_chmod real_rm
+  dir="$TMP_ROOT/notification-failed-publish-interruption"
+  fakebin="$dir/fakebin"
+  make_notification_fixture "$dir"
+  make_ps "$fakebin"
+  real_chmod=$(command -v chmod)
+  real_rm=$(command -v rm)
+  cat > "$fakebin/chmod" <<'SH'
+#!/usr/bin/env bash
+case "${2:-}" in
+  */.pending-context.*) exit 1 ;;
+esac
+exec "$FM_TEST_REAL_CHMOD" "$@"
+SH
+  cat > "$fakebin/rm" <<'SH'
+#!/usr/bin/env bash
+"$FM_TEST_REAL_RM" "$@" || exit $?
+case "${!#}" in
+  */.pending-context.*)
+    : > "$FM_TEST_PENDING_REMOVED_MARKER"
+    while [ ! -e "$FM_TEST_PENDING_REMOVED_RELEASE_MARKER" ]; do
+      sleep 0.05
+    done
+    ;;
+esac
+SH
+  chmod +x "$fakebin/chmod" "$fakebin/rm"
+  printf '%s' '{"notification_type":"shell_completed","command":"exec ./bin/fm-watch-arm.sh"}' > "$dir/in.json"
+  copilot_watch_receipt_publish "$dir" "$dir" "$dir/state" \
+    || fail "could not publish the watcher receipt"
+
+  (
+    cd "$dir" || exit 1
+    exec env PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+      FM_TEST_REAL_CHMOD="$real_chmod" FM_TEST_REAL_RM="$real_rm" \
+      FM_TEST_PENDING_REMOVED_MARKER="$dir/removed" \
+      FM_TEST_PENDING_REMOVED_RELEASE_MARKER="$dir/release" \
+      ./bin/fm-copilot-hook.sh notification < "$dir/in.json" > "$dir/notification.out"
+  ) &
+  hook_pid=$!
+  attempts=0
+  while [ ! -e "$dir/removed" ] && kill -0 "$hook_pid" 2>/dev/null && [ "$attempts" -lt 100 ]; do
+    sleep 0.05
+    attempts=$((attempts + 1))
+  done
+  [ -e "$dir/removed" ] || {
+    kill "$hook_pid" 2>/dev/null || true
+    wait "$hook_pid" 2>/dev/null || true
+    fail "notification hook did not reach failed-publication cleanup"
+  }
+  kill -TERM "$hook_pid" 2>/dev/null || fail "could not interrupt failed-publication cleanup"
+  : > "$dir/release"
+  wait "$hook_pid" 2>/dev/null || true
+  rm -f "$fakebin/chmod" "$fakebin/rm"
+
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  printf '%s' "$stop_out" | jq -e '.decision == "block" and (.reason | contains("FIRSTMATE WATCHER WAKE"))' >/dev/null \
+    || fail "failed-publication interruption lost the watcher fallback: $stop_out"
+  pass "Copilot restores fallback when interrupted during failed publication cleanup"
+}
+
+test_notification_rejects_pending_context_directory() {
+  local dir fakebin out stop_out pending
+  dir="$TMP_ROOT/notification-pending-directory"
+  fakebin="$dir/fakebin"
+  make_notification_fixture "$dir"
+  make_ps "$fakebin"
+  printf '%s' '{"notification_type":"shell_completed","command":"exec ./bin/fm-watch-arm.sh"}' > "$dir/in.json"
+  copilot_watch_receipt_publish "$dir" "$dir" "$dir/state" \
+    || fail "could not publish the watcher receipt"
+  pending="$dir/state/.copilot-watch-arm/pending-context"
+  mkdir "$pending" || fail "could not create pending-context directory"
+
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh notification < "$dir/in.json")
+  [ -z "$out" ] || fail "pending-context directory returned notification context: $out"
+  [ -z "$(find "$pending" -mindepth 1 -print -quit)" ] \
+    || fail "notification published context inside the pending-context directory"
+
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  printf '%s' "$stop_out" | jq -e '.decision == "block" and (.reason | contains("FIRSTMATE WATCHER WAKE"))' >/dev/null \
+    || fail "pending-context directory consumed the watcher fallback: $stop_out"
+  pass "Copilot rejects a pending-context directory without consuming fallback"
+}
+
+test_notification_interruption_restores_agent_stop_fallback() {
+  local dir fakebin out stop_out hook_pid receipt claimed attempts real_mv
+  dir="$TMP_ROOT/notification-interruption"
+  fakebin="$dir/fakebin"
+  make_notification_fixture "$dir"
+  make_ps "$fakebin"
+  real_mv=$(command -v mv)
+  cat > "$fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+"$FM_TEST_REAL_MV" "$@" || exit $?
+target=${!#}
+case "$target" in
+  */.claimed.*) ;;
+  *) exit 0 ;;
+esac
+if [ -n "${FM_TEST_RECEIPT_ACQUIRED_MARKER:-}" ]; then
+  : > "$FM_TEST_RECEIPT_ACQUIRED_MARKER"
+  while [ ! -e "$FM_TEST_RECEIPT_RELEASE_MARKER" ]; do
+    sleep 0.05
+  done
+fi
+SH
+  chmod +x "$fakebin/mv"
+  printf '%s' '{"notification_type":"shell_completed","command":"exec ./bin/fm-watch-arm.sh"}' > "$dir/in.json"
+  copilot_watch_receipt_publish "$dir" "$dir" "$dir/state" \
+    || fail "could not publish the watcher receipt"
+
+  (
+    cd "$dir" || exit 1
+    exec env PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+      FM_TEST_REAL_MV="$real_mv" \
+      FM_TEST_RECEIPT_ACQUIRED_MARKER="$dir/acquired" FM_TEST_RECEIPT_RELEASE_MARKER="$dir/release" \
+      ./bin/fm-copilot-hook.sh notification < "$dir/in.json" > "$dir/notification.out"
+  ) &
+  hook_pid=$!
+  attempts=0
+  while [ ! -e "$dir/acquired" ] && kill -0 "$hook_pid" 2>/dev/null && [ "$attempts" -lt 100 ]; do
+    sleep 0.05
+    attempts=$((attempts + 1))
+  done
+  [ -e "$dir/acquired" ] || {
+    kill "$hook_pid" 2>/dev/null || true
+    wait "$hook_pid" 2>/dev/null || true
+    fail "notification hook did not reach the post-acquisition interruption point"
+  }
+  kill -TERM "$hook_pid" 2>/dev/null || fail "could not interrupt the notification hook"
+  : > "$dir/release"
+  wait "$hook_pid" 2>/dev/null || true
+  rm -f "$fakebin/mv"
+
+  receipt=$(copilot_watch_receipt_path "$dir/state") || fail "could not resolve the restored watcher receipt"
+  [ -f "$receipt" ] || fail "notification interruption did not restore the watcher receipt"
+  claimed=$(find "$dir/state/.copilot-watch-arm" -name '.claimed.*' -type f -print -quit)
+  [ -z "$claimed" ] || fail "notification interruption left a stranded watcher receipt claim: $claimed"
+
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  printf '%s' "$stop_out" | jq -e '.decision == "block" and (.reason | contains("FIRSTMATE WATCHER WAKE"))' >/dev/null \
+    || fail "agentStop lost the watcher receipt after notification interruption: $stop_out"
+
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":true}')
+  [ -z "$out" ] || fail "the interruption-restored watcher receipt replayed through agentStop: $out"
+  pass "Copilot restores the agentStop fallback when notification is interrupted"
+}
+
+test_notification_interruption_after_pending_publish_keeps_single_fallback() {
+  local dir fakebin hook_pid attempts receipt pending stop_out out real_rm
+  dir="$TMP_ROOT/notification-pending-interruption"
+  fakebin="$dir/fakebin"
+  make_notification_fixture "$dir"
+  make_ps "$fakebin"
+  real_rm=$(command -v rm)
+  cat > "$fakebin/rm" <<'SH'
+#!/usr/bin/env bash
+target=${!#}
+case "$target" in
+  */.claimed.*) ;;
+  *) exec "$FM_TEST_REAL_RM" "$@" ;;
+esac
+if [ -n "${FM_TEST_RECEIPT_COMMIT_MARKER:-}" ] \
+   && [ ! -e "$FM_TEST_RECEIPT_COMMIT_MARKER.failed" ]; then
+  : > "$FM_TEST_RECEIPT_COMMIT_MARKER"
+  while [ ! -e "$FM_TEST_RECEIPT_COMMIT_RELEASE_MARKER" ]; do
+    sleep 0.05
+  done
+  : > "$FM_TEST_RECEIPT_COMMIT_MARKER.failed"
+  exit 1
+fi
+exec "$FM_TEST_REAL_RM" "$@"
+SH
+  chmod +x "$fakebin/rm"
+  printf '%s' '{"notification_type":"shell_completed","command":"exec ./bin/fm-watch-arm.sh"}' > "$dir/in.json"
+  copilot_watch_receipt_publish "$dir" "$dir" "$dir/state" \
+    || fail "could not publish the watcher receipt"
+  pending="$dir/state/.copilot-watch-arm/pending-context"
+
+  (
+    cd "$dir" || exit 1
+    exec env PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+      FM_TEST_REAL_RM="$real_rm" FM_TEST_RECEIPT_COMMIT_MARKER="$dir/commit" \
+      FM_TEST_RECEIPT_COMMIT_RELEASE_MARKER="$dir/release" \
+      ./bin/fm-copilot-hook.sh notification < "$dir/in.json" > "$dir/notification.out"
+  ) &
+  hook_pid=$!
+  attempts=0
+  while [ ! -e "$dir/commit" ] && kill -0 "$hook_pid" 2>/dev/null && [ "$attempts" -lt 100 ]; do
+    sleep 0.05
+    attempts=$((attempts + 1))
+  done
+  [ -e "$dir/commit" ] || {
+    kill "$hook_pid" 2>/dev/null || true
+    wait "$hook_pid" 2>/dev/null || true
+    fail "notification hook did not reach the post-publication interruption point"
+  }
+
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_TEST_REAL_RM="$real_rm" \
+    FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  printf '%s' "$stop_out" | jq -e '.decision == "block" and (.reason | contains("FIRSTMATE WATCHER WAKE"))' >/dev/null \
+    || fail "concurrent agentStop did not consume the published pending context: $stop_out"
+
+  kill -TERM "$hook_pid" 2>/dev/null || fail "could not interrupt the notification hook after publication"
+  : > "$dir/release"
+  wait "$hook_pid" 2>/dev/null || true
+  rm -f "$fakebin/rm"
+
+  receipt=$(copilot_watch_receipt_path "$dir/state") || fail "could not resolve the watcher receipt"
+  [ ! -e "$receipt" ] || fail "notification interruption restored a receipt after concurrent pending consumption"
+  [ ! -e "$pending" ] || fail "concurrent agentStop left the pending context replayable"
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":true}')
+  [ -z "$out" ] || fail "notification interruption left two replayable wake tokens: $out"
+  pass "Copilot keeps one wake when agentStop consumes pending context during notification cleanup"
+}
+
+test_pending_publish_signal_at_consumer_visible_rename_keeps_single_delivery() {
+  local dir fakebin hook_pid attempts receipt stop_out out real_mv
+  dir="$TMP_ROOT/pending-publish-rename-race"
+  fakebin="$dir/fakebin"
+  make_notification_fixture "$dir"
+  make_ps "$fakebin"
+  real_mv=$(command -v mv)
+  cat > "$fakebin/mv" <<'SH'
+#!/usr/bin/env bash
+target=${!#}
+case "$target" in
+  */pending-context)
+    "$FM_TEST_REAL_MV" "$@" || exit
+    : > "$FM_TEST_PENDING_RENAME_MARKER"
+    while [ ! -e "$FM_TEST_PENDING_RENAME_RELEASE_MARKER" ]; do
+      sleep 0.05
+    done
+    exit 0
+    ;;
+esac
+exec "$FM_TEST_REAL_MV" "$@"
+SH
+  chmod +x "$fakebin/mv"
+  printf '%s' '{"notification_type":"shell_completed","command":"exec ./bin/fm-watch-arm.sh"}' > "$dir/in.json"
+  copilot_watch_receipt_publish "$dir" "$dir" "$dir/state" \
+    || fail "could not publish the watcher receipt"
+
+  (
+    cd "$dir" || exit 1
+    exec env PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+      FM_TEST_REAL_MV="$real_mv" FM_TEST_PENDING_RENAME_MARKER="$dir/renamed" \
+      FM_TEST_PENDING_RENAME_RELEASE_MARKER="$dir/release" \
+      ./bin/fm-copilot-hook.sh notification < "$dir/in.json" > "$dir/notification.out"
+  ) &
+  hook_pid=$!
+  attempts=0
+  while [ ! -e "$dir/renamed" ] && kill -0 "$hook_pid" 2>/dev/null && [ "$attempts" -lt 100 ]; do
+    sleep 0.05
+    attempts=$((attempts + 1))
+  done
+  [ -e "$dir/renamed" ] || {
+    kill "$hook_pid" 2>/dev/null || true
+    wait "$hook_pid" 2>/dev/null || true
+    fail "notification hook did not reach the consumer-visible pending rename"
+  }
+  kill -TERM "$hook_pid" 2>/dev/null \
+    || fail "could not interrupt notification at the pending publication boundary"
+
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_TEST_REAL_MV="$real_mv" \
+    FM_TEST_PENDING_RENAME_MARKER="$dir/renamed" FM_TEST_PENDING_RENAME_RELEASE_MARKER="$dir/release" \
+    FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  printf '%s' "$stop_out" | jq -e '.decision == "block" and (.reason | contains("FIRSTMATE WATCHER WAKE"))' >/dev/null \
+    || fail "agentStop did not consume pending context at the publication boundary: $stop_out"
+
+  : > "$dir/release"
+  wait "$hook_pid" 2>/dev/null || true
+  rm -f "$fakebin/mv"
+
+  receipt=$(copilot_watch_receipt_path "$dir/state") || fail "could not resolve watcher receipt"
+  [ ! -e "$receipt" ] || fail "publisher restored a duplicate receipt after pending context was consumed"
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":true}')
+  [ -z "$out" ] || fail "pending publication race left a second replayable wake: $out"
+  pass "Copilot keeps one wake when signaled at the consumer-visible pending rename"
+}
+
+test_agent_stop_generation_failure_restores_wake_tokens() {
+  local dir fakebin real_jq out stop_out pending receipt
+  dir="$TMP_ROOT/agent-stop-generation-failure"
+  fakebin="$dir/fakebin"
+  make_notification_fixture "$dir"
+  make_ps "$fakebin"
+  real_jq=$(command -v jq)
+  cat > "$fakebin/jq" <<'SH'
+#!/usr/bin/env bash
+if [ "${FM_TEST_FAIL_BLOCK_JQ:-0}" = 1 ] && [ "${1:-}" = -cn ]; then
+  exit 1
+fi
+exec "$FM_TEST_REAL_JQ" "$@"
+SH
+  chmod +x "$fakebin/jq"
+
+  pending="$dir/state/.copilot-watch-arm/pending-context"
+  bash -c '. "$1"; fm_copilot_watch_pending_publish "$2" "$3"' _ \
+    "$WATCH_RECEIPT_LIB" "$dir/state" 'pending watcher wake' \
+    || fail "could not publish pending context for agentStop failure"
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_TEST_REAL_JQ="$real_jq" FM_TEST_FAIL_BLOCK_JQ=1 \
+    FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  [ -z "$out" ] || fail "failed agentStop JSON generation emitted output: $out"
+  [ -f "$pending" ] || fail "failed agentStop JSON generation did not restore pending context"
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_TEST_REAL_JQ="$real_jq" \
+    FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  printf '%s' "$stop_out" | "$real_jq" -e '.decision == "block"' >/dev/null \
+    || fail "restored pending context did not block agentStop: $stop_out"
+
+  copilot_watch_receipt_publish "$dir" "$dir" "$dir/state" \
+    || fail "could not publish receipt for agentStop failure"
+  receipt=$(copilot_watch_receipt_path "$dir/state") || fail "could not resolve watcher receipt"
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_TEST_REAL_JQ="$real_jq" FM_TEST_FAIL_BLOCK_JQ=1 \
+    FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  [ -z "$out" ] || fail "failed receipt fallback JSON generation emitted output: $out"
+  [ -f "$receipt" ] || fail "failed agentStop JSON generation did not restore the receipt"
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_TEST_REAL_JQ="$real_jq" \
+    FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  printf '%s' "$stop_out" | "$real_jq" -e '.decision == "block"' >/dev/null \
+    || fail "restored receipt did not block agentStop: $stop_out"
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_TEST_REAL_JQ="$real_jq" \
+    FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":true}')
+  [ -z "$out" ] || fail "restored wake tokens replayed after successful agentStop output: $out"
+  pass "Copilot restores wake tokens when agentStop block generation fails"
+}
+
+test_agent_stop_output_failure_restores_wake_token() {
+  local dir fakebin out stop_out pending
+  dir="$TMP_ROOT/agent-stop-output-failure"
+  fakebin="$dir/fakebin"
+  make_notification_fixture "$dir"
+  make_ps "$fakebin"
+  cat > "$dir/fail-block-output.bash" <<'SH'
+printf() {
+  if [ "${FM_TEST_FAIL_BLOCK_OUTPUT:-0}" = 1 ] && [ "${1:-}" = '%s\n' ]; then
+    case "${2:-}" in
+      '{"decision":"block"'*) return 1 ;;
+    esac
+  fi
+  builtin printf "$@"
+}
+SH
+
+  pending="$dir/state/.copilot-watch-arm/pending-context"
+  bash -c '. "$1"; fm_copilot_watch_pending_publish "$2" "$3"' _ \
+    "$WATCH_RECEIPT_LIB" "$dir/state" 'pending watcher wake' \
+    || fail "could not publish pending context for agentStop output failure"
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" BASH_ENV="$dir/fail-block-output.bash" \
+    FM_TEST_FAIL_BLOCK_OUTPUT=1 FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  [ -z "$out" ] || fail "failed agentStop output unexpectedly emitted content: $out"
+  [ -f "$pending" ] || fail "failed agentStop output did not restore pending context"
+
+  stop_out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":false}')
+  printf '%s' "$stop_out" | jq -e '.decision == "block" and .reason == "pending watcher wake"' >/dev/null \
+    || fail "pending context restored after output failure did not block agentStop: $stop_out"
+  out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    ./bin/fm-copilot-hook.sh agent-stop <<<'{"sessionId":"s1","stop_hook_active":true}')
+  [ -z "$out" ] || fail "output-failure wake token replayed after successful agentStop output: $out"
+  pass "Copilot restores wake tokens when agentStop block output fails"
 }
 
 test_tracked_primary_hook_commands_execute() {
@@ -1016,7 +1446,7 @@ test_claude_compatibility_hooks_stand_down() {
   make_claude_compat_fixture "$dir"
   while IFS= read -r command; do
     count=$((count + 1))
-    out=$(cd "$dir" && PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
+    out=$(cd "$dir" && COPILOT_CLI=1 PATH="$fakebin:$PATH" FM_FAKE_PS_COMM=MainThread FM_FAKE_PS_ARGS='copilot --allow-all' \
       sh -c "$command" <<'EOF' 2>&1
 {"source":"startup","tool_input":{"command":"echo hi"},"tool_name":"task"}
 EOF
@@ -1089,6 +1519,14 @@ test_pretool_arm_stands_down_in_linked_task_worktree
 test_copilot_native_policies_bypass_compatibility_stand_down
 test_agent_stop_allows_clean_stop
 test_notification_injects_watcher_followup_only_for_watcher_arm_completion
+test_notification_publish_failure_preserves_agent_stop_fallback
+test_notification_interruption_during_failed_publish_restores_fallback
+test_notification_rejects_pending_context_directory
+test_notification_interruption_restores_agent_stop_fallback
+test_notification_interruption_after_pending_publish_keeps_single_fallback
+test_pending_publish_signal_at_consumer_visible_rename_keeps_single_delivery
+test_agent_stop_generation_failure_restores_wake_tokens
+test_agent_stop_output_failure_restores_wake_token
 test_notification_requires_primary_scope
 test_tracked_primary_hook_commands_execute
 test_non_cli_hook_surface_stands_down

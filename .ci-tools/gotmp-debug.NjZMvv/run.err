@@ -1,0 +1,66 @@
++ set -u
++ export FM_GATE_REFUSE_BYPASS=1
++ FM_GATE_REFUSE_BYPASS=1
++++ dirname .ci-tools/gotmp-debug.NjZMvv/test.sh
+++ cd .ci-tools/gotmp-debug.NjZMvv/..
+++ pwd
++ ROOT=/Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools
++ TEARDOWN=/Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-teardown.sh
++ TMP_ROOT=
++ trap cleanup EXIT
+++ mktemp -d /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.XXXXXX
++ TMP_ROOT=/var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV
++ test_teardown_removes_tasktmp_dir
++ local id=td-rm-z2
++ local task_tmp=/var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/fm-td-rm-z2
++ mkdir -p /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/fm-td-rm-z2/gotmp
++ printf 'leftover\n'
++ local fake
+++ make_fake_root td-rm-z2 /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/fm-td-rm-z2
+++ local id=td-rm-z2 tasktmp=/var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/fm-td-rm-z2
+++ local fake=/var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2
+++ mkdir -p /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/backends /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/state /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/data
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-teardown.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-teardown.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-backend.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-backend.sh
+++ cat
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-tmux-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-tmux-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-cursor-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-cursor-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-composer-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-composer-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-nm-run-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-nm-run-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-lock-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-lock-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-lease-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-lease-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-control-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-control-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-classify-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-classify-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-timeout-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-timeout-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-wake-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-wake-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-gate-refuse-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-gate-refuse-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-pr-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-pr-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-public-followup-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-public-followup-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-x-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-x-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-env-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-env-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-secondmate-registry-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-secondmate-registry-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-secondmate-parent-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-secondmate-parent-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-pending-reply-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-pending-reply-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-marker-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-marker-lib.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-operational-input.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-operational-input.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-inactive-reconcile.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-inactive-reconcile.sh
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-parent-channel-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-parent-channel-lib.sh
+++ cat
+++ chmod +x /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-guard.sh
+++ cat
+++ chmod +x /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-fleet-sync.sh
+++ cat
+++ ln -s /Users/kapil/.no-mistakes/worktrees/a42fcb577ebd/01M344PT3F3PVMWDQFNGN0WH8E/.ci-tools/bin/fm-backlog-transition-lib.sh /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-backlog-transition-lib.sh
+++ cat
+++ printf %s /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2
++ fake=/var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2
++ '[' -d /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/fm-td-rm-z2/gotmp ']'
++ FM_HOME=/var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2
++ bash /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV/td-rm-z2/bin/fm-teardown.sh td-rm-z2
++ fail 'teardown exited non-zero with a valid tasktmp'
++ printf 'not ok - %s\n' 'teardown exited non-zero with a valid tasktmp'
+not ok - teardown exited non-zero with a valid tasktmp
++ exit 1
++ cleanup
++ '[' -n /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV ']'
++ rm -rf /var/folders/my/3dkt0ffx3k3d4jq94nkys5z80000gn/T//fm-gotmp-tests.7qj2AV

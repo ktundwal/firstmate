@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Native ACLs must permit a private receipt without accepting broad access.
 set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
