@@ -1,0 +1,2 @@
+# Copilot did not invoke its notification hook; the receipt-backed agentStop fallback delivered and acknowledged the watcher wake.
+ok - Copilot live hooks: denial, stop continuation, and watcher wake delivery (GitHub Copilot CLI 1.0.88-1.)

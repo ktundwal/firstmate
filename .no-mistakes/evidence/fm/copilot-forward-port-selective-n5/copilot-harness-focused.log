@@ -1,0 +1,30 @@
+ok - Copilot fallback yields only to ambiguous Claude/Cursor conflicts
+ok - Copilot process detection accepts native, path, MainThread, and node-bundle shapes while rejecting later-argument decoys
+ok - Copilot-marked processes use actual ancestry to resolve inherited marker conflicts
+ok - session-lock ancestry recognizes Copilot MainThread and node-bundle process shapes
+ok - real processes identify native, path, and verified node-bundled Copilot shapes while rejecting decoys
+ok - tmux composer identity and liveness recognize node-bundled Copilot and reject MainThread decoys
+ok - tmux Copilot identity ignores stale pane_current_command fallbacks
+ok - tmux foreground identity trims indented Copilot and Cursor argv0 values without matching decoys
+ok - Copilot sessionStart returns the full digest as additionalContext
+ok - Copilot agentStop translates the shared guard refusal into a native block
+ok - Copilot pretool-arm delegates only in a genuine primary
+ok - Copilot pretool-arm stands down in linked task worktrees
+ok - Copilot native hooks bypass only the compatibility stand-down
+ok - Copilot agentStop leaves a healthy turn end unchanged
+ok - Copilot notifications require single-use watcher receipts for command and title payloads
+ok - Copilot preserves the agentStop fallback when notification context publication fails
+ok - Copilot restores fallback when interrupted during failed publication cleanup
+ok - Copilot rejects a pending-context directory without consuming fallback
+ok - Copilot restores the agentStop fallback when notification is interrupted
+ok - Copilot keeps one wake when agentStop consumes pending context during notification cleanup
+ok - Copilot keeps one wake when signaled at the consumer-visible pending rename
+ok - Copilot restores wake tokens when agentStop block generation fails
+ok - Copilot restores wake tokens when agentStop block output fails
+ok - Copilot notification stands down outside genuine primary scope
+ok - tracked Copilot hook commands execute through the shipped registration
+ok - Copilot repository hooks stay inert outside local Copilot CLI
+ok - Claude compatibility hooks stay inert under native Copilot hooks
+ok - Claude compatibility hooks still run under actual Claude with inherited Copilot markers
+ok - Claude compatibility hooks resolve their worktree root from repository subdirectories
+# all fm-copilot-harness tests passed
