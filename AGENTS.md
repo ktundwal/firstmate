@@ -215,7 +215,7 @@ A silent bootstrap section needs no action; for any printed actionable diagnosti
 
 Load `harness-adapters` before every spawn or recovery and before trust handling, skill invocation, interrupt, exit, resume, or adapter verification.
 The harnesses verified for crewmate and scout launches are `claude`, `codex`, `copilot`, `opencode`, `pi`, `pi-signed`, `grok`, `kimi`, `cursor`, `omp`, `muse`, `gemini`, `rovo`, and `agy`; never dispatch on an unverified adapter.
-Copilot is additionally verified for local secondmates and local primary integration, but not for remote workers or native Windows.
+Copilot is additionally verified for local secondmates and local primary integration; remote workers and secondmates remain unsupported, and native Windows is experimental, so load `harness-adapters` for its verified boundary.
 If static `config/crew-harness` or `config/secondmate-harness` names an unverified adapter, report it and fall back only to a verified adapter rather than launching it.
 
 `docs/configuration.md` owns dispatch-profile and runtime-backend schemas, `bin/fm-harness.sh` owns static resolution, and `bin/fm-spawn.sh` owns launch flags and fail-closed validation.

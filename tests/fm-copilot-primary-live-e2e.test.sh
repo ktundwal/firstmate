@@ -27,7 +27,19 @@ COPILOT_HOME="$TMP_ROOT/copilot-home"
 mkdir -p "$COPILOT_HOME"
 
 cleanup_all() {
+  local pane_pid= i=0
+  [ -z "${FM_COPILOT_LIVE_TRANSCRIPT:-}" ] || pane_text > "$FM_COPILOT_LIVE_TRANSCRIPT"
+  pane_pid=$("$REAL_TMUX" -L "$SOCKET" display-message -p -t primary '#{pane_pid}' 2>/dev/null || true)
   "$REAL_TMUX" -L "$SOCKET" kill-server >/dev/null 2>&1 || true
+  case "$pane_pid" in
+    ''|*[!0-9]*) ;;
+    *)
+      while kill -0 "$pane_pid" 2>/dev/null && [ "$i" -lt 50 ]; do
+        sleep 0.1
+        i=$((i + 1))
+      done
+      ;;
+  esac
   fm_test_cleanup
 }
 trap cleanup_all EXIT
@@ -58,7 +70,11 @@ mode=${1:-}
 payload=$(cat 2>/dev/null || true)
 printf '%s\n' "$mode" >> .hook-modes.log
 printf '%s' "$payload" > ".hook-$mode-payload.json"
-printf '%s' "$payload" | ./bin/fm-copilot-hook-real.sh "$mode"
+output=$(printf '%s' "$payload" | ./bin/fm-copilot-hook-real.sh "$mode")
+rc=$?
+printf '%s' "$output" > ".hook-$mode-output.json"
+printf '%s\n' "$output"
+exit "$rc"
 SH
 chmod +x "$REPO/bin/fm-copilot-hook.sh" "$REPO/bin/fm-copilot-hook-real.sh" "$REPO/bin/fm-arm-pretool-check.sh" "$REPO/bin/fm-operational-input.sh"
 
@@ -162,6 +178,18 @@ wait_for_pane() {  # <needle> <seconds> <what>
   fail "$what did not appear within ${limit}s"
 }
 
+wait_for_response() {  # <needle> <seconds> <what>
+  local needle=$1 limit=$2 what=$3 i=0 count
+  while [ "$i" -lt "$((limit * 2))" ]; do
+    count=$(pane_text | grep -F -c "$needle" || true)
+    [ "$count" -ge 2 ] && return 0
+    sleep 0.5
+    i=$((i + 1))
+  done
+  printf 'pane at failure:\n%s\n' "$(pane_text)" >&2
+  fail "$what did not appear within ${limit}s"
+}
+
 submit() {  # <prompt>
   "$REAL_TMUX" -L "$SOCKET" send-keys -t primary -l "$1"
   sleep 1
@@ -171,7 +199,7 @@ submit() {  # <prompt>
   "$REAL_TMUX" -L "$SOCKET" send-keys -t primary Enter
 }
 
-PRETOOL_PROMPT='This is a controlled Firstmate adapter verification. Use the bash tool to attempt exactly: bin/fm-watch-arm.sh &. The repository hook should deny it. After observing the tool result, reply exactly: INITIAL_RESPONSE'
+printf -v PRETOOL_PROMPT '\u2063FIRSTMATE_OP: v1 test: This is a controlled Firstmate adapter verification. Use the bash tool to attempt exactly: bin/fm-watch-arm.sh &. The repository hook should deny it. After observing the tool result, reply exactly: INITIAL_RESPONSE'
 printf -v COPILOT_COMMAND 'exec env COPILOT_HOME=%q %q -i %q --allow-all --no-ask-user --no-remote --no-remote-export' \
   "$COPILOT_HOME" "$COPILOT_BIN" "$PRETOOL_PROMPT"
 "$REAL_TMUX" -L "$SOCKET" new-session -d -s primary -x 220 -y 60 -c "$REPO" "$COPILOT_COMMAND" \
@@ -189,7 +217,7 @@ for _ in $(seq 1 120); do
   esac
   sleep 0.5
 done
-wait_for_pane "LIVE_SESSION_START_OK LIVE_AGENT_STOP_OK" 300 \
+wait_for_response "LIVE_SESSION_START_OK LIVE_AGENT_STOP_OK" 300 \
   "the session-start context and bounded agentStop continuation"
 
 assert_contains "$(pane_text)" "LIVE_SESSION_START_OK LIVE_AGENT_STOP_OK" \
@@ -202,9 +230,11 @@ if ! jq -e '(.source == "startup" or .source == "new") and (.sessionId | type) =
   printf 'hook modes:\n%s\n' "$(cat "$REPO/.hook-modes.log" 2>/dev/null || true)" >&2
   fail "sessionStart payload did not use the documented camelCase shape"
 fi
-jq -e '.toolName == "bash" and (.toolArgs.command == "bin/fm-watch-arm.sh &")' \
+jq -e '.toolName == "bash" and (.toolArgs.command | type) == "string" and (.toolArgs.command | contains("bin/fm-watch-arm.sh"))' \
   "$REPO/.hook-pretool-arm-payload.json" >/dev/null \
   || fail "preToolUse payload did not reach the shared Copilot watcher-arm policy path through the tracked hook file"
+jq -e '.permissionDecision == "deny"' "$REPO/.hook-pretool-arm-output.json" >/dev/null \
+  || fail "preToolUse did not return Copilot's native deny decision for the protected watcher command"
 jq -e '.stopReason == "end_turn" and (.stop_hook_active | type) == "boolean"' \
   "$REPO/.hook-agent-stop-payload.json" >/dev/null \
   || fail "agentStop payload did not carry the documented bounded-continuation fields through the tracked hook file"
@@ -217,7 +247,7 @@ esac
 WATCHER_PROMPT='Use the bash tool with description exactly "Arm the FirstMate watcher" to run exactly `bin/fm-watch-arm.sh` as its own attached asynchronous task and then stop. After a later Firstmate watcher wake arrives, follow that Firstmate watcher wake instruction exactly and then reply exactly LIVE_WATCH_NOTIFICATION_OK. Never run bin/fm-wake-drain.sh unless a Firstmate watcher wake tells you to.'
 submit "$WATCHER_PROMPT"
 wait_for_file "$REPO/.wake-ack-count" 300 "the watcher acknowledgement"
-wait_for_pane "LIVE_WATCH_NOTIFICATION_OK" 120 "the watcher completion response"
+wait_for_response "LIVE_WATCH_NOTIFICATION_OK" 120 "the watcher completion response"
 assert_contains "$(pane_text)" "LIVE_WATCH_NOTIFICATION_OK" \
   "the tracked watcher notification did not resume Copilot through the shared follow-up"
 [ "$(cat "$REPO/.wake-drain-count" 2>/dev/null)" = 1 ] \
@@ -234,15 +264,16 @@ if [ -f "$REPO/.hook-notification-payload.json" ]; then
   UNRELATED_PROMPT='Run this exact bash command as an attached background task: sleep 1; printf LIVE_BACKGROUND_DONE > background-result. Wait for its completion notification and then reply exactly LIVE_UNRELATED_NOTIFICATION_OK. Never run bin/fm-wake-drain.sh unless a Firstmate watcher wake arrives.'
   submit "$UNRELATED_PROMPT"
   wait_for_file "$REPO/background-result" 300 "the unrelated background task result"
-  wait_for_file "$REPO/.hook-notification-payload.json" 120 "the unrelated completion notification"
-  wait_for_pane "LIVE_UNRELATED_NOTIFICATION_OK" 120 "the unrelated completion response"
+  wait_for_response "LIVE_UNRELATED_NOTIFICATION_OK" 120 "the unrelated completion response"
   assert_contains "$(pane_text)" "LIVE_UNRELATED_NOTIFICATION_OK" \
     "an unrelated completion notification did not resume Copilot cleanly"
   [ "$(cat "$REPO/background-result" 2>/dev/null)" = LIVE_BACKGROUND_DONE ] \
     || fail "the unrelated attached background shell task did not complete"
   assert_absent "$REPO/.wake-drain-count" "an unrelated completion notification incorrectly triggered bin/fm-wake-drain.sh"
-  jq -e '((.notification_type // .notificationType // "") | ascii_downcase) == "shell_completed"' "$REPO/.hook-notification-payload.json" >/dev/null \
-    || fail "the unrelated background completion did not emit Copilot's shell_completed notification through the tracked hook file"
+  if [ -f "$REPO/.hook-notification-payload.json" ]; then
+    jq -e '((.notification_type // .notificationType // "") | ascii_downcase) == "shell_completed"' "$REPO/.hook-notification-payload.json" >/dev/null \
+      || fail "the unrelated background completion emitted an invalid shell_completed notification through the tracked hook file"
+  fi
 else
   printf '%s\n' '# Copilot did not invoke its notification hook; the receipt-backed agentStop fallback delivered and acknowledged the watcher wake.'
 fi

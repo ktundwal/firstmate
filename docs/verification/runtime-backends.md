@@ -641,8 +641,33 @@ The selective forward-port was re-verified on 2026-09-18 against the installed `
 `FM_COMPOSER_MATRIX_LIVE=1 bin/fm-test-run.sh tests/fm-composer-matrix-live-e2e.test.sh` reported Copilot's real idle composer `empty` before later reporting unrelated Claude trust and OpenCode startup failures.
 On 2026-09-19, `FM_COPILOT_LIVE_E2E=1 bin/fm-test-run.sh tests/fm-copilot-primary-live-e2e.test.sh` passed against `GitHub Copilot CLI 1.0.87-0.`: native session context, unsafe watcher-arm denial, bounded stop continuation, a receipt-claimed `agentStop` fallback that forced the wake/drain/ack cycle when no notification-hook payload arrived, and exact acknowledgement.
 
-Native Windows Copilot support is not part of this forward-port.
-The earlier fork's PowerShell launcher, native process ownership, ACL validation, Windows Herdr path conversion, and Windows-specific test suites remain archived evidence only and are not shipped by this branch.
+#### Native Windows Copilot pilot
+
+Experimental native Windows Copilot paths are shipped in this branch.
+The latest native pilot evidence remains the 2026-09-14 run from a Copilot CLI primary reporting 1.0.81-9 through Git Bash 5.3.15; the worker banner reported 1.0.84-6 after an automatic update, so the primary and worker observations must not be attributed to one CLI version.
+That run verified generation-bound session ownership, native private-ACL enforcement, single-use completion receipts, and PowerShell completion-notification replay rejection.
+
+The retained native refresh entry points are:
+
+```sh
+bin/fm-test-run.sh tests/fm-windows-process.test.sh \
+  tests/fm-windows-copilot-session.test.sh \
+  tests/fm-windows-private-path.test.sh \
+  --per-script-timeout-secs 180
+```
+
+Observed native output from the 2026-09-14 run included:
+
+```text
+ok - Windows owner identity is generation-bound and keeps the Unix representation
+ok - real Windows acquisition and reacquisition preserve the same owner
+ok - foreign claims and previous process generations do not own this session
+ok - native private ACLs support one-time completion receipts
+ok - native PowerShell completion consumes one matching receipt and rejects replay
+```
+
+Startup lock identity handling and Copilot receipt publication changed after that run and have portable regression coverage, but this record does not contain a native Windows rerun of those revisions.
+Remote Copilot workers and secondmates, active-work cancellation, and recovery after loss of the entire runtime backend remain outside the verified boundary.
 
 `zellij action dump-screen --pane-id <id> --ansi` was verified at zellij 0.44.0 to preserve ANSI styling (real Claude Code rendered inside a zellij pane dumped `ESC[m` `❯` U+00A0 for its idle composer row), which is the capability the zellij composer classifier reads.
 
