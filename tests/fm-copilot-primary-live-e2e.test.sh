@@ -27,7 +27,7 @@ COPILOT_HOME="$TMP_ROOT/copilot-home"
 mkdir -p "$COPILOT_HOME"
 
 cleanup_all() {
-  local pane_pid= i=0
+  local pane_pid='' i=0
   [ -z "${FM_COPILOT_LIVE_TRANSCRIPT:-}" ] || pane_text > "$FM_COPILOT_LIVE_TRANSCRIPT"
   pane_pid=$("$REAL_TMUX" -L "$SOCKET" display-message -p -t primary '#{pane_pid}' 2>/dev/null || true)
   "$REAL_TMUX" -L "$SOCKET" kill-server >/dev/null 2>&1 || true
